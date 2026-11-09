@@ -1,0 +1,38 @@
+{
+  "obj": "visual.obj",
+  "radius": 0.03,
+  "height": 0.09,
+  "mass": 0.12,
+  "radius_m": 0.03,
+  "height_m": 0.09,
+  "mass_kg": 0.12,
+  "bounds_m": [
+    [
+      -0.029506941084784626,
+      -0.029467307722874175,
+      0.0
+    ],
+    [
+      0.02960096740818153,
+      0.029515431021037458,
+      0.09
+    ]
+  ],
+  "up_axis": "Z",
+  "triangles": 18036,
+  "collision_proxy": "upright cylinder, body only; no handle/rim/interior contacts",
+  "radius_basis": "user-specified",
+  "source": "lux3d",
+  "source_detail": "downloaded from authenticated Aholo API task",
+  "generation_id": "5018305",
+  "prompt": "A single upright handleless ceramic tumbler, straight cylindrical sides, an open circular rim, flat base, matte ivory glaze. Height 9 cm, outside diameter 6 cm. Isolated object, no saucer, no table, no liquid, no text.",
+  "source_mesh": "original.glb",
+  "sha256_glb": "4252dc64a1b8ce24b26c41e579a68db51aa7125f090b66539943a204cbeb248d",
+  "scale_basis": "user-specified height, not an automatic physical measurement",
+  "color_rgb": [
+    0.30330042463026774,
+    0.2586665203189987,
+    0.22601102465603773
+  ],
+  "color_basis": "area-weighted mean of material or indexed vertex colors; uniform simulator tint"
+}

@@ -1,0 +1,19 @@
+# Runtime / generated
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.vite/
+node_modules/
+frontend/dist/
+projects/
+datasets/
+*.log
+
+# Local environment
+.venv/
+work/
+
+# OS
+.DS_Store
+Thumbs.db

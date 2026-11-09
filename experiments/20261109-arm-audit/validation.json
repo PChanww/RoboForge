@@ -1,0 +1,1127 @@
+{
+ "phase": "A",
+ "date": "2026-11-09",
+ "code_sha256": {
+  "arm.py": "2dafd5697462c052ce943dd9fe2a0971c0cd0edcf6777c3271c816fb6552ec91",
+  "sim_env.py": "7d2ec5bd94a58e0e4f913f7a948306a9e597811b3cdb92376ae0788e172f9d55",
+  "server.py": "5018b33cf8a5539fc1acfb42f8c33a73dd5d10cf980874a9c9e65ab7f9a2f7ce"
+ },
+ "asset_sha256": {
+  "base.obj": "e99092357e0d801c96fdb31a6ae8edf74397ff86d6b401676e9267dee1eb98c3",
+  "fore.obj": "f1a76f1147a5ecc713de63a0805385ff7176d143fa695ebc7af8989738264700",
+  "original.glb": "b28502c75bbd3381e0d944033b07548211e80699be32de8b39cf98033e65251e",
+  "physics.json": "eb1ec0ae1502fc6180b294dc1a8e1f2d5c91a28916d08ab2658231d35435f6a8",
+  "source.json": "d6677ba48b37cd2ec5240d9d8d0967765fdd07694e4cddbe2a25cf27fec8a9ba",
+  "upper.obj": "1b68a6da8dfa040770eb2846773a9b3b1bf06f9105a651496c17e988e9730dde",
+  "wrist.obj": "3939948460fa292e2b2347c400a0d4ba9e72d694f6552e9a939af002e61e806c"
+ },
+ "physics": {
+  "upper_mass_kg": 0.45,
+  "forearm_mass_kg": 0.32,
+  "shoulder_torque_nm": 32
+ },
+ "mujoco_version": "4.0.0",
+ "ticks_per_run": 180,
+ "seeds": [
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9
+ ],
+ "controls": {
+  "baseline": "privileged scripted expert (reads initial object pose)",
+  "open_control": "identical XYZ path, jaws commanded open every tick"
+ },
+ "results": {
+  "standard": {
+   "baseline_successes": 10,
+   "baseline_by_seed": [
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.4,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13249225659127895,
+      0.05015466929334072,
+      0.04799519625937494
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.3,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13225636297278448,
+      0.05015059114405585,
+      0.047995162133365
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.4,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13239050094926683,
+      0.050158407895108795,
+      0.04799513108811057
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.4,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13236594348885025,
+      0.050161384395639365,
+      0.04799513667304699
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.4,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13249891448535175,
+      0.050149626702874074,
+      0.04799512595034394
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.4,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13237401330428752,
+      0.05014835181491173,
+      0.04799518419546314
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.4,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13244717690784208,
+      0.05015447778073388,
+      0.04799516832097813
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.3,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13230042135684697,
+      0.05015088123181481,
+      0.047995156678001305
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.3,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13220367699458785,
+      0.050149929464300816,
+      0.04799515041042321
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.4,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.1325494699510275,
+      0.050152689821328145,
+      0.04799516008925623
+     ]
+    }
+   ],
+   "open_control_successes": 0,
+   "open_control_lifts": 0,
+   "open_control_by_seed": [
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.11005004491633907,
+      -0.06616224398147635,
+      0.03899514501934216
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.11868454034335184,
+      -0.02872491460360697,
+      0.03899516669791232
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.1359488858773053,
+      -0.06458330903021649,
+      0.038995179979857277
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.14809034789499242,
+      -0.06797600573123491,
+      0.03899515364455438
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.08892934914339853,
+      -0.05287746116984384,
+      0.03899516549600758
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.09845502303969862,
+      -0.03656378332196896,
+      0.03899516267418576
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.11686670912369974,
+      -0.06212066674289872,
+      0.03899515494910535
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.11086857174237504,
+      -0.03165385813193357,
+      0.038995135934465984
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.13143904811666834,
+      -0.026700113773616377,
+      0.038995177209678974
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.09395316155593592,
+      -0.0652255484023733,
+      0.0389951503943434
+     ]
+    }
+   ]
+  },
+  "tall": {
+   "baseline_successes": 10,
+   "baseline_by_seed": [
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.4,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13255974722581268,
+      0.05012352501284712,
+      0.0609951444475677
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.3,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13225441150526845,
+      0.05012610292007162,
+      0.06099517288158616
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.4,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13242457650773204,
+      0.05013094988860689,
+      0.06099510553351963
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.4,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13242425319637754,
+      0.050127429261545446,
+      0.060995164904914835
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.4,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13258427782751864,
+      0.05013104671113911,
+      0.060995139985762066
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.4,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13244124222905054,
+      0.05012059108521753,
+      0.06099513803449509
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.4,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13251967078237817,
+      0.05012597592689474,
+      0.06099517642802155
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.3,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.1323626559436524,
+      0.050118690478659494,
+      0.060995172079691885
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.3,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.1321899522272025,
+      0.05012579740502888,
+      0.06099516255945308
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.4,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13264068957183356,
+      0.05013399647774976,
+      0.060995118453711736
+     ]
+    }
+   ],
+   "open_control_successes": 0,
+   "open_control_lifts": 0,
+   "open_control_by_seed": [
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.11004975105899603,
+      -0.06616235578696392,
+      0.05199516491805303
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.11868477283258257,
+      -0.028725510453828228,
+      0.05199514136821285
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.1359495112295026,
+      -0.06458374437122583,
+      0.051995139745413595
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.14809056446820926,
+      -0.0679762130873507,
+      0.051995162353873595
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.08892977770116277,
+      -0.05287834715243208,
+      0.05199512713236674
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.0984559516138799,
+      -0.03656427955783951,
+      0.05199510400959403
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.11686703515929626,
+      -0.06212096741656517,
+      0.05199516151660134
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.11086889941818487,
+      -0.03165400266106995,
+      0.051995159509359054
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.13143911729150398,
+      -0.026700416731618833,
+      0.05199517459641467
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.09395305108302876,
+      -0.06522578715962903,
+      0.05199516050727144
+     ]
+    }
+   ]
+  },
+  "wide": {
+   "baseline_successes": 10,
+   "baseline_by_seed": [
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.2,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13262768820573748,
+      0.04820099731549504,
+      0.03999516271656828
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.2,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.1323532999403731,
+      0.04846116031107804,
+      0.039995132416432544
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.2,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13249786855161083,
+      0.04814152697300122,
+      0.03999515945088518
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.2,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13246563703736733,
+      0.04809919798140452,
+      0.03999515969522616
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.2,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13262534960914127,
+      0.048344647521790504,
+      0.03999514758046992
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.2,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13248227661776932,
+      0.04843032427083738,
+      0.03999511271532495
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.2,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13257290939330516,
+      0.04821379726252703,
+      0.03999514688327263
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.2,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.132404577451669,
+      0.048455055987511,
+      0.039995103259424264
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.1,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.132298864887814,
+      0.048429153763628205,
+      0.03999510940842417
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.2,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.1326872690844822,
+      0.04826805160159021,
+      0.03999514334458934
+     ]
+    }
+   ],
+   "open_control_successes": 0,
+   "open_control_lifts": 0,
+   "open_control_by_seed": [
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.11004988014981414,
+      -0.06616207065209115,
+      0.03099514171724064
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.11868434643551548,
+      -0.02872477063684334,
+      0.03099515822182744
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.13594893987888687,
+      -0.06458330092947631,
+      0.030995151741527217
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.1480903047920392,
+      -0.06797574568858097,
+      0.030995161111333797
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.08892928630542186,
+      -0.052877338709260584,
+      0.030995151152739656
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.0984550516763691,
+      -0.036563532717488294,
+      0.030995147355859533
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.11686677901106926,
+      -0.06212028467139547,
+      0.030995170088142992
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.11086847116894738,
+      -0.03165336284650428,
+      0.030995188098445453
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.1314391082232017,
+      -0.02670023359607564,
+      0.030995137327516752
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.09395307853920437,
+      -0.06522530523115089,
+      0.030995142394781346
+     ]
+    }
+   ]
+  },
+  "imported/lux3d-ivory": {
+   "baseline_successes": 10,
+   "baseline_by_seed": [
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.1,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13250319581717565,
+      0.050191065931435706,
+      0.05399517405166883
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.1,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13222210619256028,
+      0.05018685309482297,
+      0.05399512980909647
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.0,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.1323715839477306,
+      0.05019424983417817,
+      0.05399513777848575
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.0,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13236396722465718,
+      0.05019639714514795,
+      0.05399517289494136
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.1,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13254244336280938,
+      0.050190446999558234,
+      0.05399514790384397
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.1,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13240457967555583,
+      0.05018950083003768,
+      0.053995156135124754
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.0,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13246235487076974,
+      0.05019343028489014,
+      0.0539951481422783
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.1,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13233268766681477,
+      0.05018557256602966,
+      0.053995156077362876
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.1,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13215555645994218,
+      0.05018628321706303,
+      0.05399515004761784
+     ]
+    },
+    {
+     "success_tick": 157,
+     "max_rise_mm": 87.0,
+     "lifted": true,
+     "grasped": true,
+     "final_object_xyz": [
+      0.13258125928340284,
+      0.050186828450156824,
+      0.0539951524000548
+     ]
+    }
+   ],
+   "open_control_successes": 0,
+   "open_control_lifts": 0,
+   "open_control_by_seed": [
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.11005002783039046,
+      -0.06616255174990109,
+      0.04499514551523613
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.11868458579907316,
+      -0.02872490064680882,
+      0.04499517004866602
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.1359490915502385,
+      -0.06458348862440304,
+      0.0449951626160438
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.14809056446593033,
+      -0.06797592786179339,
+      0.04499516066489172
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.08892919633620822,
+      -0.05287716794124133,
+      0.04499519458185179
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.09845507340645615,
+      -0.03656392052457878,
+      0.04499516184246617
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.11686686493976944,
+      -0.06212077462566836,
+      0.044995149742118434
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.11086856067092088,
+      -0.031653861462855495,
+      0.044995159075653865
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.131439086099447,
+      -0.026700583871213737,
+      0.044995142761998945
+     ]
+    },
+    {
+     "success_tick": null,
+     "max_rise_mm": 0.0,
+     "lifted": false,
+     "grasped": false,
+     "final_object_xyz": [
+      -0.09395333648199973,
+      -0.06522594565530078,
+      0.04499513208338128
+     ]
+    }
+   ]
+  }
+ },
+ "self_collision": {
+  "task_region": {
+   "self_contacts": [],
+   "unreachable": [],
+   "joint_limit_violations": [],
+   "max_kinematic_ik_error_mm": 0.0
+  },
+  "full_box_dead_zones": {
+   "self_contacts": [
+    {
+     "target": [
+      0.0,
+      0.17,
+      0.022
+     ],
+     "pair": [
+      "upper_arm",
+      "eef",
+      -8.064
+     ]
+    },
+    {
+     "target": [
+      0.0,
+      0.17,
+      0.054
+     ],
+     "pair": [
+      "upper_arm",
+      "eef",
+      -1.057
+     ]
+    },
+    {
+     "target": [
+      0.0,
+      0.17,
+      0.054
+     ],
+     "pair": [
+      "upper_arm",
+      "eef",
+      -0.974
+     ]
+    },
+    {
+     "target": [
+      0.0,
+      0.17,
+      0.087
+     ],
+     "pair": [
+      "upper_arm",
+      "left",
+      -14.714
+     ]
+    },
+    {
+     "target": [
+      0.0,
+      0.17,
+      0.119
+     ],
+     "pair": [
+      "upper_arm",
+      "left",
+      -15.006
+     ]
+    }
+   ],
+   "unreachable": [
+    [
+     -0.28,
+     -0.17,
+     0.022
+    ],
+    [
+     -0.28,
+     -0.17,
+     0.054
+    ],
+    [
+     -0.28,
+     -0.17,
+     0.087
+    ],
+    [
+     -0.28,
+     -0.17,
+     0.119
+    ],
+    [
+     -0.28,
+     -0.17,
+     0.152
+    ],
+    [
+     -0.28,
+     -0.17,
+     0.184
+    ],
+    [
+     -0.28,
+     -0.113,
+     0.184
+    ],
+    [
+     -0.21,
+     -0.17,
+     0.184
+    ],
+    [
+     0.21,
+     -0.17,
+     0.184
+    ],
+    [
+     0.28,
+     -0.17,
+     0.022
+    ],
+    [
+     0.28,
+     -0.17,
+     0.054
+    ],
+    [
+     0.28,
+     -0.17,
+     0.087
+    ],
+    [
+     0.28,
+     -0.17,
+     0.119
+    ],
+    [
+     0.28,
+     -0.17,
+     0.152
+    ],
+    [
+     0.28,
+     -0.17,
+     0.184
+    ],
+    [
+     0.28,
+     -0.113,
+     0.184
+    ]
+   ],
+   "joint_limit_violations": [],
+   "max_kinematic_ik_error_mm": 0.0
+  },
+  "mechanical_stops": {
+   "elbow_full_fold": [
+    [
+     "upper_arm",
+     "eef",
+     -12.542
+    ]
+   ]
+  },
+  "mechanical_stops_active": true,
+  "wrist_forearm_clear": true,
+  "wrist_pitch_sweep_contacts": []
+ }
+}

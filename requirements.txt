@@ -1,0 +1,12 @@
+mujoco==4.0.0
+numpy==2.5.4
+pillow==13.0.0
+trimesh==5.2.0
+# Platform backend (phase B), Python 3.13 compatible
+fastapi==0.162.2
+uvicorn==0.54.0
+pydantic==2.14.3
+gymnasium==1.4.0
+websockets==17.4
+# Test client
+httpx==0.28.1

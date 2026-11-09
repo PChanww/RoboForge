@@ -1,0 +1,246 @@
+{
+  "asset": "imported/lux3d-ivory",
+  "controller": "privileged scripted baseline",
+  "trials": [
+    {
+      "seed": 0,
+      "metrics": {
+        "object_xyz": [
+          0.1330034655947276,
+          0.04999930526986708,
+          0.05399512273437678
+        ],
+        "goal_xyz": [
+          0.133,
+          0.05,
+          0.009
+        ],
+        "touched": true,
+        "grasped": true,
+        "lifted": true,
+        "success": true,
+        "contacts": 0,
+        "tray_contact": true,
+        "time_s": 9.0,
+        "tick": 180,
+        "stable_ticks": 29
+      }
+    },
+    {
+      "seed": 1,
+      "metrics": {
+        "object_xyz": [
+          0.13300329373312275,
+          0.049999389511005674,
+          0.05399513985749837
+        ],
+        "goal_xyz": [
+          0.133,
+          0.05,
+          0.009
+        ],
+        "touched": true,
+        "grasped": true,
+        "lifted": true,
+        "success": true,
+        "contacts": 0,
+        "tray_contact": true,
+        "time_s": 9.0,
+        "tick": 180,
+        "stable_ticks": 29
+      }
+    },
+    {
+      "seed": 2,
+      "metrics": {
+        "object_xyz": [
+          0.13300732300574625,
+          0.04999936955085692,
+          0.05399513382810625
+        ],
+        "goal_xyz": [
+          0.133,
+          0.05,
+          0.009
+        ],
+        "touched": true,
+        "grasped": true,
+        "lifted": true,
+        "success": true,
+        "contacts": 0,
+        "tray_contact": true,
+        "time_s": 9.0,
+        "tick": 180,
+        "stable_ticks": 29
+      }
+    },
+    {
+      "seed": 3,
+      "metrics": {
+        "object_xyz": [
+          0.1330073678205509,
+          0.04999947393462174,
+          0.05399514446019726
+        ],
+        "goal_xyz": [
+          0.133,
+          0.05,
+          0.009
+        ],
+        "touched": true,
+        "grasped": true,
+        "lifted": true,
+        "success": true,
+        "contacts": 0,
+        "tray_contact": true,
+        "time_s": 9.0,
+        "tick": 180,
+        "stable_ticks": 29
+      }
+    },
+    {
+      "seed": 4,
+      "metrics": {
+        "object_xyz": [
+          0.1330070973093281,
+          0.04999978056513675,
+          0.05399516129288093
+        ],
+        "goal_xyz": [
+          0.133,
+          0.05,
+          0.009
+        ],
+        "touched": true,
+        "grasped": true,
+        "lifted": true,
+        "success": true,
+        "contacts": 0,
+        "tray_contact": true,
+        "time_s": 9.0,
+        "tick": 180,
+        "stable_ticks": 29
+      }
+    },
+    {
+      "seed": 5,
+      "metrics": {
+        "object_xyz": [
+          0.1330028308826987,
+          0.049999405368633246,
+          0.053995158386429765
+        ],
+        "goal_xyz": [
+          0.133,
+          0.05,
+          0.009
+        ],
+        "touched": true,
+        "grasped": true,
+        "lifted": true,
+        "success": true,
+        "contacts": 0,
+        "tray_contact": true,
+        "time_s": 9.0,
+        "tick": 180,
+        "stable_ticks": 29
+      }
+    },
+    {
+      "seed": 6,
+      "metrics": {
+        "object_xyz": [
+          0.1330027602418066,
+          0.04999933566948809,
+          0.05399512856415004
+        ],
+        "goal_xyz": [
+          0.133,
+          0.05,
+          0.009
+        ],
+        "touched": true,
+        "grasped": true,
+        "lifted": true,
+        "success": true,
+        "contacts": 0,
+        "tray_contact": true,
+        "time_s": 9.0,
+        "tick": 180,
+        "stable_ticks": 29
+      }
+    },
+    {
+      "seed": 7,
+      "metrics": {
+        "object_xyz": [
+          0.1330029131272482,
+          0.04999985702213181,
+          0.05399517626537421
+        ],
+        "goal_xyz": [
+          0.133,
+          0.05,
+          0.009
+        ],
+        "touched": true,
+        "grasped": true,
+        "lifted": true,
+        "success": true,
+        "contacts": 0,
+        "tray_contact": true,
+        "time_s": 9.0,
+        "tick": 180,
+        "stable_ticks": 29
+      }
+    },
+    {
+      "seed": 8,
+      "metrics": {
+        "object_xyz": [
+          0.13300722671496631,
+          0.04999929283232275,
+          0.053995133758808496
+        ],
+        "goal_xyz": [
+          0.133,
+          0.05,
+          0.009
+        ],
+        "touched": true,
+        "grasped": true,
+        "lifted": true,
+        "success": true,
+        "contacts": 0,
+        "tray_contact": true,
+        "time_s": 9.0,
+        "tick": 180,
+        "stable_ticks": 29
+      }
+    },
+    {
+      "seed": 9,
+      "metrics": {
+        "object_xyz": [
+          0.1330032525682587,
+          0.04999991594379614,
+          0.05399518936097809
+        ],
+        "goal_xyz": [
+          0.133,
+          0.05,
+          0.009
+        ],
+        "touched": true,
+        "grasped": true,
+        "lifted": true,
+        "success": true,
+        "contacts": 0,
+        "tray_contact": true,
+        "time_s": 9.0,
+        "tick": 180,
+        "stable_ticks": 29
+      }
+    }
+  ]
+}

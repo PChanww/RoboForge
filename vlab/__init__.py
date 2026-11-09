@@ -1,0 +1,1 @@
+"""Configurable robot simulation platform (schema 1.0)."""

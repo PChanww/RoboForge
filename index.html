@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>桌面抓放实验台 · VLA Lab</title>
+<style>
+:root {color-scheme:dark;--base:#111619;--panel:#192024;--line:#364246;--ink:#eef3eb;--dim:#a3b4b2;--mint:#aff3c0}
+* {box-sizing:border-box}
+body {margin:0;background:var(--base);color:var(--ink);font:15px/1.5 "Inter","Microsoft YaHei",sans-serif}
+main {max-width:1360px;margin:auto;padding:24px 5vw 38px}
+header,.strip,.bar,.info,.metric {display:flex;align-items:center;justify-content:space-between;gap:12px}
+header {padding-bottom:16px;border-bottom:1px solid var(--line)}
+.brand {font:700 17px/1.2 "IBM Plex Mono",Consolas,monospace;letter-spacing:1.5px}
+.brand i {color:var(--mint);font-style:normal;margin-right:8px}
+.connection,.tag,.mono,code {font:13px/1.5 "IBM Plex Mono",Consolas,monospace}
+.connection {color:var(--dim)} .connection b {color:var(--mint)}
+h1 {font-size:clamp(30px,4vw,54px);letter-spacing:-.06em;line-height:1.15;margin:28px 0 10px}
+.intro {color:var(--dim);margin:0 0 24px}
+.grid {display:grid;grid-template-columns:minmax(0,1.85fr) minmax(245px,1fr);gap:18px;align-items:start}
+.panel {overflow:hidden;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.bar {padding:13px 18px;border-bottom:1px solid var(--line)}
+h2 {font-size:16px;margin:0;font-weight:650} .tag,.dim {color:var(--dim)}
+.camera {width:100%;aspect-ratio:800/540;display:block;background:#232e34;object-fit:contain}
+.strip {border-top:1px solid var(--line);font-size:13px;padding:12px 18px;color:var(--dim)}
+.metric {padding:6px 0}.metric strong {font-size:15px}.metrics {padding:11px 18px}
+.controls {margin-bottom:14px}.settings {padding:15px 18px;display:grid;gap:12px}
+.row {display:grid;grid-template-columns:1.4fr 1fr;gap:12px}
+label {color:var(--dim);font-size:13px;display:grid;gap:5px}
+select,input,button {font:inherit;border-radius:6px}
+select,input {width:100%;padding:8px;border:1px solid #4b5a60;color:var(--ink);background:var(--base)}
+button {cursor:pointer;padding:9px 12px;font-weight:650;color:var(--ink);background:#273237;border:1px solid #53636a}
+button:hover {filter:brightness(1.12)} button:focus-visible,select:focus-visible,input:focus-visible {outline:2px solid var(--mint);outline-offset:2px}
+button:disabled {opacity:.55;cursor:wait}
+.primary {background:var(--mint);color:#11241b;border-color:var(--mint)}
+.message {min-height:1.5em;margin:0;color:var(--dim);font-size:13px}
+details {border-top:1px solid var(--line);margin-top:18px;padding:12px 0;color:var(--dim)}
+summary {cursor:pointer;color:var(--ink)}
+code {color:var(--mint);overflow-wrap:anywhere}
+.keys {display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.keys button {min-width:42px;padding:6px 10px}
+@media(max-width:760px){main{padding:16px}.grid{grid-template-columns:1fr}.intro{margin-bottom:14px}h1{margin-top:20px}.strip{flex-wrap:wrap}}
+</style></head>
+<body><main>
+<header><span class="brand"><i>▦</i>VLA LAB</span><span class="connection"><b id="dot">●</b> <span id="conn">正在连接</span></span></header>
+<h1>桌面抓放实验台</h1><p class="intro">把杯子放到托盘上。切换杯型，观察夹爪在哪里抓住、何时松开。</p>
+<div class="grid"><section class="panel"><div class="bar"><h2>仿真相机</h2><span class="tag">MuJoCo · RGB</span></div>
+<img class="camera" id="camera" alt="仿真相机中的夹爪、杯子和托盘">
+<div class="strip"><span id="assetNow">—</span><span class="mono" id="frameNow">STEP 000</span></div></section>
+<aside><section class="panel controls"><div class="bar"><h2>实验设置</h2></div>
+<div class="settings"><div class="row"><label>测试物体<select id="asset"></select></label>
+<label>摆位种子<input id="seed" type="number" min="0" max="4294967295" value="0" step="1"></label></div>
+<button id="reset">应用设置并重置</button><button class="primary" id="run">运行脚本基线</button>
+<p id="message" class="message" role="status">脚本基线读取物体位置，用于检验抓取物理。</p></div></section>
+<section class="panel"><div class="bar"><h2>本轮结果</h2></div><div class="metrics">
+<div class="metric"><span>已抬离桌面</span><strong id="lift">—</strong></div>
+<div class="metric"><span>已在托盘放稳</span><strong id="success">—</strong></div>
+<div class="metric"><span>夹爪中心 (m)</span><span id="pos" class="mono">—</span></div>
+</div></section></aside></div>
+<details><summary>手动控制与外部策略接口</summary>
+<div class="keys" id="keys"></div>
+<p>外部策略读取 <code>GET /api/observation?images=1</code>，再向 <code>POST /api/step</code> 发送观察对应的 episode、tick 和四维动作。运行外部策略时，这个页面会同步显示进展。</p>
+</details></main>
+<script>
+const $ = id => document.getElementById(id);
+let current, running = false, busy = false, syncing = false, grip = 1, frameKey;
+async function request(path, body) {
+  const options = body === undefined ? {} : {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)};
+  const r = await fetch(path, options), data = await r.json();
+  if (!r.ok) throw Error(data.error || r.statusText);
+  return data;
+}
+async function sync() {
+  if (syncing) return;
+  syncing = true;
+  try {
+    const r = await request("/api/result"); current = r;
+    $("conn").textContent = "仿真已连接";
+    const found = Array.from($("asset").options).find(x => x.value === r.asset);
+    $("assetNow").textContent = (found?.textContent || r.asset) + "  /  种子 " + r.seed;
+    $("frameNow").textContent = "STEP " + String(r.tick).padStart(3,"0");
+    $("lift").textContent = r.metrics.lifted ? "是" : "否";
+    $("success").textContent = r.metrics.success ? "是" : "否";
+    $("pos").textContent = r.observation.eef.map(v=>Number(v).toFixed(2)).join("  ");
+    const key = r.episode + "-" + r.tick;
+    if (frameKey !== key) { $("camera").src = "/api/frame.jpg?v=" + key; frameKey = key; }
+  } finally { syncing = false; }
+}
+function info(msg){$("message").textContent=msg}
+function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
+async function act(fn) {
+  if(busy) return; busy=true;
+  try { await fn(); } catch(e) { info(e.message); } finally {busy=false}
+}
+$("reset").onclick=()=>act(async()=>{
+  running=false;
+  const n = Number($("seed").value);
+  if(!$("seed").value || !Number.isInteger(n)||n<0||n>=2**32) throw Error("请输入有效的非负整数种子");
+  await request("/api/reset",{asset:$("asset").value,seed:n});grip=1;
+  await sync(); info("场景已重置，可运行基线或接入外部策略。");
+});
+$("run").onclick=async()=>{
+  if(running){running=false;return}
+  if(busy || !current)return;
+  if(current.metrics.success){info("本轮已完成，可重置后再试。");return}
+  busy=true;running=true;$("run").textContent="暂停基线";$("reset").disabled=true;info("脚本正在控制夹爪");
+  try {
+    let snap=current;
+    while(running && !current.metrics.success && snap.tick<current.limit){
+      snap=await request("/api/baseline-step",{episode:snap.episode,tick:snap.tick});
+      if(snap.tick%3===0)await sync();
+      await sleep(20);
+    }
+    await sync();
+    info(current.metrics.success?"脚本已完成抓放。":current.tick>=current.limit?"已达到步数上限。":"基线已暂停。");
+  } catch(e){info(e.message)}
+  finally{running=false;busy=false;$("run").textContent="运行脚本基线";$("reset").disabled=false}
+};
+for(const [label,delta,g] of [["X−",[-1,0,0]],["X+",[1,0,0]],["Y−",[0,-1,0]],["Y+",[0,1,0]],["Z−",[0,0,-1]],["Z+",[0,0,1]],["合爪",[0,0,0],-1],["开爪",[0,0,0],1]]){
+  const b=document.createElement("button");b.textContent=label;b.onclick=()=>act(async()=>{
+    if(!current)return;grip=g??grip;
+    await request("/api/step",{episode:current.episode,tick:current.tick,action:[...delta,grip]});
+    await sync();info("已执行手动动作。");
+  });$("keys").append(b);
+}
+async function init(){
+  const {assets}=await request("/api/assets");
+  for(const a of assets)$("asset").add(new Option(a.name,a.id));
+  await sync();$("asset").value=current.asset;$("seed").value=current.seed;
+  setInterval(()=>{if(!busy)sync().catch(()=>{$("conn").textContent="连接中断"})},500);
+}
+init().catch(e=>{info(e.message);$("conn").textContent="连接中断"});
+</script></body></html>
