@@ -24,14 +24,11 @@ def asset_params(asset, lab_root=None):
     return sim_env._load_asset(path)
 
 
-def scene_xml(task: TaskConfig, radius, height, mass, color, offset, handle, spawn):
+def task_xml(task: TaskConfig, radius, height, mass, color, offset, handle, spawn):
+    """Task objects only (tray + dynamic cup). Environment comes from scene_builder."""
     gx, gy = task.goal_xy
     gs = task.goal_surface_m
     return f"""
-        <light pos="-.4 -.3 .85" dir=".25 .25 -1" diffuse=".69 .65 .59" castshadow="true"/>
-        <light pos=".5 .4 .6" dir="-.6 -.3 -1" diffuse=".44 .48 .56" castshadow="false"/>
-        <geom type="plane" size="2 2 .01" pos="0 0 -.061" rgba=".19 .23 .25 1"/>
-        <geom name="table" type="box" pos="0 0 -.028" size=".32 .215 .028" rgba=".29 .37 .39 1"/>
         <geom name="tray" type="box" pos="{gx} {gy} {gs/2}" size="{TRAY_HALF[0]} {TRAY_HALF[1]} {gs/2}" rgba=".63 .69 .65 1"/>
         <geom type="box" pos="{gx-.073} {gy} .011" size=".002 .069 .004" rgba=".63 .69 .65 1"/>
         <geom type="box" pos="{gx+.073} {gy} .011" size=".002 .069 .004" rgba=".63 .69 .65 1"/>

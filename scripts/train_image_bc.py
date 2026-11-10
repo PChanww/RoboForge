@@ -57,9 +57,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--lab", required=True)
     ap.add_argument("--epochs", type=int, default=40)
+    ap.add_argument("--dataset", default="expert21")
+    ap.add_argument("--model-out", default="visual_bc")
     args = ap.parse_args()
     lab = Path(args.lab)
-    ds = LeRobotDataset(repo_id="local/vla-lab-expert21", root=lab / "datasets" / "lerobot" / "expert21")
+    ds = LeRobotDataset(repo_id=f"local/{args.dataset}", root=lab / "datasets" / "lerobot" / args.dataset)
     img, state, act, ep = load(ds)
     prev = torch.zeros_like(act)
     for e in np.unique(ep):
@@ -100,8 +102,8 @@ def main():
     ck = {"state_dict": model.state_dict(), "state_mean": smean, "state_std": sstd,
           "prev_mean": pmean, "prev_std": pstd, "img_size": IMG, "steps": steps,
           "privileged": False, "inputs": ["front_image", "state", "prev_action"]}
-    torch.save(ck, models / "visual_bc.pt")
-    ck2 = torch.load(models / "visual_bc.pt", weights_only=False)
+    torch.save(ck, models / f"{args.model_out}.pt")
+    ck2 = torch.load(models / f"{args.model_out}.pt", weights_only=False)
     m2 = VisualBC()
     m2.load_state_dict(ck2["state_dict"])
     m2.eval()
@@ -110,9 +112,10 @@ def main():
     summary = {"type": "visual BC (image+state, no object pose)", "frames": int(len(img)),
                "train_frames": int(tr.sum()), "optimizer_steps": steps,
                "val_mse": round(val_mse, 5), "gen_mse": round(gen_mse, 5),
-               "reload_max_abs_diff": diff, "checkpoint": str(models / "visual_bc.pt")}
+               "reload_max_abs_diff": diff, "dataset": args.dataset,
+               "checkpoint": str(models / f"{args.model_out}.pt")}
     (lab / "datasets" / "reports").mkdir(parents=True, exist_ok=True)
-    (lab / "datasets" / "reports" / "train_visual.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
+    (lab / "datasets" / "reports" / f"train_{args.model_out}.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     print(json.dumps(summary))
 
 

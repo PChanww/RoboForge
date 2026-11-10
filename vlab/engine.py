@@ -15,7 +15,7 @@ from PIL import Image
 
 import arm
 
-from . import kinematics, tasks
+from . import kinematics, scene_builder, tasks
 from .mjcf import mesh_files, robot_xml
 from .scheduler import CameraBuffer, Scheduler
 from .schema import ProjectConfig
@@ -76,11 +76,20 @@ class PlatformEnv:
         cfg = self.config
         r, h, mass, color, mesh, offset, handle = tasks.asset_params(cfg.task.asset, self.lab_root)
         spawn = tasks.spawn_xy(cfg.task, seed)
+        if cfg.scene.sensor_renderer == "hybrid":
+            raise UnsupportedMode("hybrid sensor renderer not implemented; use sensor_renderer=mujoco")
         body, actuators, mesh_names, world_cams = robot_xml(self.robot, cfg.sensors)
-        task_scene = tasks.scene_xml(cfg.task, r, h, mass, color, offset, handle, spawn)
+        env_xml, env_assets, self._env_info = scene_builder.environment_xml(cfg, self.lab_root)
+        task_scene = tasks.task_xml(cfg.task, r, h, mass, color, offset, handle, spawn)
         mesh_assets = mesh_files(cfg, self.robot, mesh_names, self.lab_root)
+        mesh_assets.update(env_assets)
         mesh_assets["cup.obj"] = mesh
-        mesh_decls = "".join(f'<mesh name="{n[:-4]}" file="{n}"/>' for n in mesh_assets if n != "cup.obj")
+        def _decl(n):
+            if n == "scene_env.obj" and cfg.scene.environment:
+                s = cfg.scene.environment.uniform_scale
+                return f'<mesh name="scene_env" file="{n}" scale="{s:.6g} {s:.6g} {s:.6g}"/>'
+            return f'<mesh name="{n[:-4]}" file="{n}"/>'
+        mesh_decls = "".join(_decl(n) for n in mesh_assets if n != "cup.obj")
         mesh_decls += '<mesh name="cup_mesh" file="cup.obj"/>'
         dt = cfg.scene.physics_dt
         grav = " ".join(str(v) for v in cfg.scene.gravity)
@@ -100,7 +109,7 @@ class PlatformEnv:
             <material name="rubber" rgba=".13 .16 .18 1"/>
             <material name="steel" rgba=".69 .73 .74 1" specular=".45" shininess=".6"/>
           </asset>
-          <worldbody>{world_cams}{task_scene}{body}</worldbody>
+          <worldbody>{world_cams}{env_xml}{task_scene}{body}</worldbody>
           <actuator>{actuators}</actuator>
         </mujoco>"""
         self._asset_radius, self._asset_height, self._cup_offset = r, h, offset

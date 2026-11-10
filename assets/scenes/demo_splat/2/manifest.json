@@ -1,0 +1,20 @@
+{
+ "asset_id": "demo_splat",
+ "revision": 2,
+ "display_name": "demo_splat",
+ "category": "scene",
+ "provider": "local",
+ "source_kind": "import",
+ "created": "2026-11-10T08:54:42.248050+00:00",
+ "files": {
+  "source/demo_splat.ply": "743b4c03da9e850b37a50f202cc3706de1c1d56202555fea7438f9551ada9526"
+ },
+ "format": "ply",
+ "ply_kind": "gaussian",
+ "up_axis": "Z",
+ "unit_scale": 1.0,
+ "calibrated": false,
+ "visual_asset": null,
+ "bbox": null,
+ "status": "preview_only"
+}

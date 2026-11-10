@@ -30,9 +30,12 @@ def req(method, path, body=None):
         return json.loads(resp.read())
 
 
+BASE_PROJECT = "default"
+
+
 def ensure_project(asset):
     pid = "eval_" + asset.replace("/", "_")
-    cfg = req("GET", "/api/v1/config?project=default")
+    cfg = req("GET", f"/api/v1/config?project={BASE_PROJECT}")
     cfg["task"]["asset"] = asset
     cfg["project_id"] = pid
     req("PUT", f"/api/v1/config?project={pid}", cfg)
@@ -83,12 +86,21 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--lab", required=True)
     ap.add_argument("--out", default="")
+    ap.add_argument("--model", default="visual_bc")
+    ap.add_argument("--base-project", default="default")
     args = ap.parse_args()
+    global BASE_PROJECT
+    BASE_PROJECT = args.base_project
     lab = Path(args.lab)
-    ck = torch.load(lab / "datasets" / "models" / "visual_bc.pt", weights_only=False)
+    ck = torch.load(lab / "datasets" / "models" / f"{args.model}.pt", weights_only=False)
     model = VisualBC()
     model.load_state_dict(ck["state_dict"])
     model.eval()
+    base_cfg = req("GET", f"/api/v1/config?project={BASE_PROJECT}")
+    robot_id = base_cfg["robots"][0]["id"]
+    compat = req("GET", f"/api/v1/compat?model=visual&robot_id={robot_id}")
+    if not compat["compatible"]:
+        raise SystemExit(f"visual policy incompatible with {robot_id}: {compat['mismatches']}")
     plan = [("standard", 0), ("standard", 1), ("standard", 30), ("standard", 31),
             ("imported/lux3d-ivory", 0), ("imported/lux3d-ivory", 1)]
     rows = [run_episode(model, ck, a, s) for a, s in plan]
@@ -99,7 +111,7 @@ def main():
     }
     report = {"policy": "visual BC (image+state, no object pose)", "episodes": rows,
               "groups": {k: {"successes": sum(r["success"] for r in v), "n": len(v)} for k, v in groups.items()}}
-    out = Path(args.out) if args.out else lab / "datasets" / "reports" / "eval_visual.json"
+    out = Path(args.out) if args.out else lab / "datasets" / "reports" / f"eval_{args.model}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(report["groups"]))

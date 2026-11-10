@@ -70,6 +70,29 @@ class ImportBody(BaseModel):
     up: str = "y"
 
 
+class SceneImportBody(BaseModel):
+    filename: str
+    data_b64: str
+    asset_id: str
+    up_axis: str = "Y"
+    unit_scale: float = 1.0
+    calibrated: bool = False
+
+
+class BindSceneBody(BaseModel):
+    asset_id: str
+    revision: int = 1
+    use_default_table: bool = False
+    position: list[float] = [0, 0, 0]
+    quaternion_xyzw: list[float] = [0, 0, 0, 1]
+    uniform_scale: float = 1.0
+
+
+class GenerationBody(BaseModel):
+    kind: str = "generation"
+    params: dict = {}
+
+
 def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     app = FastAPI(title="VLA Lab Platform", version=SCHEMA_VERSION)
     store = ConfigStore(lab_root / "projects")
@@ -422,6 +445,71 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
                                 "robot": m.get("robot"), "created": m.get("created_utc")})
         return {"deployments": out}
 
+    # -- scene assets --------------------------------------------------------
+    import base64 as _b64
+    import tempfile as _tmp
+    from . import scene_import
+    from .schema import SceneInstance
+
+    @app.post("/api/v1/scene-assets/import")
+    def scene_import_ep(body: SceneImportBody):
+        try:
+            data = _b64.b64decode(body.data_b64)
+            with _tmp.NamedTemporaryFile(suffix=Path(body.filename).suffix, delete=False) as f:
+                f.write(data)
+                tmp = Path(f.name)
+            mf = scene_import.import_scene(tmp, lab_root, body.asset_id, 1,
+                                           up_axis=body.up_axis, unit_scale=body.unit_scale,
+                                           calibrated=body.calibrated)
+            tmp.unlink(missing_ok=True)
+            return json.loads(mf.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.get("/api/v1/scene-assets")
+    def scene_list():
+        out = []
+        root = lab_root / "assets" / "scenes"
+        if root.is_dir():
+            for d in sorted(root.iterdir()):
+                for rev in sorted(d.iterdir(), key=lambda p: int(p.name) if p.name.isdigit() else 0):
+                    mf = rev / "manifest.json"
+                    if mf.is_file():
+                        out.append(json.loads(mf.read_text(encoding="utf-8")))
+        return {"scenes": out}
+
+    @app.get("/api/v1/scene-assets/{asset_id}")
+    def scene_detail(asset_id: str):
+        d = lab_root / "assets" / "scenes" / asset_id
+        revs = sorted([p for p in d.iterdir() if p.name.isdigit()], key=lambda p: int(p.name)) if d.is_dir() else []
+        if not revs:
+            raise HTTPException(404, "unknown scene asset")
+        return json.loads((revs[-1] / "manifest.json").read_text(encoding="utf-8"))
+
+    @app.post("/api/v1/scene-assets/{asset_id}/validate")
+    def scene_validate(asset_id: str):
+        d = lab_root / "assets" / "scenes" / asset_id
+        revs = sorted([p for p in d.iterdir() if p.name.isdigit()], key=lambda p: int(p.name)) if d.is_dir() else []
+        if not revs:
+            raise HTTPException(404, "unknown scene asset")
+        mf = json.loads((revs[-1] / "manifest.json").read_text(encoding="utf-8"))
+        issues = []
+        if not mf.get("calibrated"):
+            issues.append("uncalibrated: preview only, not a verified physical scene")
+        if mf.get("visual_asset") and not (revs[-1] / mf["visual_asset"]).is_file():
+            issues.append("visual asset missing")
+        return {"valid": not issues, "issues": issues, "status": mf.get("status")}
+
+    @app.post("/api/v1/projects/{pid}/bind-scene")
+    def bind_scene(pid: str, body: BindSceneBody):
+        cfg = store.load(pid) if store.exists(pid) else store.load("default")
+        cfg = cfg.model_copy(update={"project_id": pid})
+        cfg.scene.environment = SceneInstance(asset_id=body.asset_id, revision=body.revision,
+                                              position=body.position, quaternion_xyzw=body.quaternion_xyzw,
+                                              uniform_scale=body.uniform_scale)
+        cfg.scene.use_default_table = body.use_default_table
+        return store.save(cfg).model_dump()
+
     @app.get("/api/v1/compat")
     def compat_check(robot_id: str | None = None, model: str = "state"):
         from .compat import check_contract
@@ -438,10 +526,33 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
             raise HTTPException(400, "model must be state|priv|visual")
         return check_contract(base, cfg, robot_id)
 
+    from .world_provider import GenerationJobStore
+    gen_store = GenerationJobStore(lab_root / "datasets" / "generation_jobs")
+
     @app.get("/api/v1/generation-jobs")
     def generation_status():
-        return {"provider": "aholo-lux3d", "aux": AuxModel().status(),
-                "note": "set AHOLO_API_KEY / AUX_MODEL_* in the backend environment to enable live generation"}
+        return {"provider": "aholo-world", "aux": AuxModel().status(),
+                "configured": gen_store.provider.configured(),
+                "note": "set AHOLO_API_KEY / AUX_MODEL_* in the backend environment to enable live generation",
+                "jobs": gen_store.list()}
+
+    @app.post("/api/v1/generation-jobs")
+    def generation_submit(body: GenerationBody):
+        return gen_store.submit(body.kind, body.params)
+
+    @app.get("/api/v1/generation-jobs/{jid}")
+    def generation_get(jid: str):
+        j = gen_store.get(jid)
+        if not j:
+            raise HTTPException(404, "unknown generation job")
+        return j
+
+    @app.post("/api/v1/generation-jobs/{jid}/poll")
+    def generation_poll(jid: str):
+        j = gen_store.poll(jid)
+        if not j:
+            raise HTTPException(404, "unknown generation job")
+        return j
 
     @app.on_event("shutdown")
     def _shutdown():

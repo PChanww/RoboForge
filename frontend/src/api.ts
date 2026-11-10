@@ -53,4 +53,9 @@ export const api = {
   assetLibrary: () => req<{ assets: any[] }>('GET', '/api/v1/asset-library'),
   deployments: () => req<{ deployments: any[] }>('GET', '/api/v1/deployments'),
   generationStatus: () => req<any>('GET', '/api/v1/generation-jobs'),
+  sceneAssets: () => req<{ scenes: any[] }>('GET', '/api/v1/scene-assets'),
+  sceneAsset: (id: string) => req<any>('GET', `/api/v1/scene-assets/${id}`),
+  sceneValidate: (id: string) => req<any>('POST', `/api/v1/scene-assets/${id}/validate`, {}),
+  sceneImport: (body: any) => req<any>('POST', '/api/v1/scene-assets/import', body),
+  bindScene: (pid: string, body: any) => req<any>('POST', `/api/v1/projects/${pid}/bind-scene`, body),
 }

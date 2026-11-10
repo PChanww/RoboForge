@@ -1,0 +1,11 @@
+{
+ "type": "visual BC (image+state, no object pose)",
+ "frames": 3343,
+ "train_frames": 2465,
+ "optimizer_steps": 800,
+ "val_mse": 0.00383,
+ "gen_mse": 0.03044,
+ "reload_max_abs_diff": 0.0,
+ "dataset": "scene_demo",
+ "checkpoint": "/mnt/c/Users/31295/Documents/Codex/2026-11-09/https-www-aholo3d-cn-hackathon-utm/outputs/vla-lab/datasets/models/visual_scene.pt"
+}

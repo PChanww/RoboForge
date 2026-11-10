@@ -66,15 +66,32 @@ export function ProjectsPage() {
 
 export function LibraryPage() {
   const { data } = useFetch(() => api.assetLibrary(), [])
+  const scenes = useFetch(() => api.sceneAssets(), [])
   const gen = useFetch(() => api.generationStatus(), [])
   const [msg, setMsg] = useState('')
+  const onImport = async (file: File) => {
+    const buf = await file.arrayBuffer()
+    let bin = ''
+    const bytes = new Uint8Array(buf)
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+    const slug = file.name.replace(/\.(glb|ply)$/i, '').replace(/[^a-zA-Z0-9_-]/g, '-')
+    try {
+      await api.sceneImport({ filename: file.name, data_b64: btoa(bin), asset_id: slug, up_axis: 'Y', calibrated: false })
+      setMsg(`已导入场景 ${slug}（未标定，预览-only）`)
+      scenes.reload()
+    } catch (e: any) { setMsg(`导入失败: ${e.message}`) }
+  }
   return (
     <div className="p-4">
       <h2 className="text-lg text-ink mb-2">资产中心</h2>
       <div className="text-xs text-muted mb-3">生成服务：{gen.data?.aux?.state ?? '…'}（凭据由后端环境配置；无凭据时可本地导入与复用内置资产）</div>
-      <div className="flex gap-2 mb-3">
+      <div className="flex gap-2 mb-3 items-center">
         <Button onClick={() => setMsg('生成需后端配置 AHOLO_API_KEY；当前为等待配置状态。')}>生成资产</Button>
-        <Button variant="outline" onClick={() => setMsg('本地导入复用 asset_pipeline/import_asset.py（GLB/ZIP），见 README。')}>导入资产</Button>
+        <label className="inline-flex items-center px-3 py-1.5 rounded-md border border-edge text-xs text-muted hover:text-ink cursor-pointer">
+          导入场景(.glb/.ply)
+          <input type="file" accept=".glb,.ply" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) onImport(f) }} />
+        </label>
       </div>
       {msg && <div className="text-xs text-yellow-300 mb-2">{msg}</div>}
       <div className="grid grid-cols-3 gap-3">
@@ -85,6 +102,52 @@ export function LibraryPage() {
           </Link>
         ))}
       </div>
+      <h3 className="text-sm text-ink mt-4 mb-2">场景</h3>
+      <div className="grid grid-cols-3 gap-3">
+        {(scenes.data?.scenes || []).map((s: any, i: number) => (
+          <Link key={s.asset_id + s.revision + i} to={`/scenes/${s.asset_id}/edit`}
+            className="border border-edge rounded p-3 bg-panel2 hover:border-accent">
+            <div className="text-accent text-sm">{s.display_name} <span className="text-[10px] text-muted">rev{s.revision}</span></div>
+            <div className="text-xs text-muted">{s.format} · {s.status}{s.calibrated ? ' · 已标定' : ' · 未标定'}</div>
+          </Link>
+        ))}
+        {!(scenes.data?.scenes || []).length && <div className="text-xs text-muted">暂无场景，使用上方导入或生成。</div>}
+      </div>
+    </div>
+  )
+}
+
+export function SceneEditPage() {
+  const { sceneId } = useParams()
+  const { data } = useFetch(() => api.sceneAsset(sceneId || ''), [sceneId])
+  const [project, setProject] = useState('scene_demo')
+  const [msg, setMsg] = useState('')
+  const bind = async () => {
+    try {
+      await api.bindScene(project, { asset_id: sceneId, revision: data?.revision ?? 1, use_default_table: false })
+      setMsg(`已绑定到项目 ${project}（保存配置版本；默认桌面关闭）`)
+    } catch (e: any) { setMsg(`绑定失败: ${e.message}`) }
+  }
+  const validate = async () => {
+    try { const r = await api.sceneValidate(sceneId || ''); setMsg(r.valid ? '校验通过' : '校验问题: ' + r.issues.join('; ')) }
+    catch (e: any) { setMsg(e.message) }
+  }
+  return (
+    <div className="p-4">
+      <Link to="/library" className="text-xs text-accent">← 资产中心</Link>
+      <h2 className="text-lg text-ink my-2">场景编辑 · {data?.display_name ?? sceneId}</h2>
+      <div className="text-xs text-muted space-y-1">
+        <div>来源 {data?.provider}/{data?.source_kind} · 格式 {data?.format} · 状态 {data?.status}</div>
+        <div>revision {data?.revision} · up_axis {data?.up_axis} · unit_scale {data?.unit_scale} · 已标定 {String(data?.calibrated)}</div>
+        {data?.bbox && <div>包围盒 {JSON.stringify(data.bbox)}</div>}
+      </div>
+      <div className="flex gap-2 items-center mt-3 text-xs">
+        <input className="!w-40" value={project} onChange={(e) => setProject(e.target.value)} />
+        <Button size="sm" onClick={bind}>用于项目（绑定场景）</Button>
+        <Button size="sm" variant="outline" onClick={validate}>校验</Button>
+      </div>
+      {msg && <div className="text-xs text-yellow-300 mt-2">{msg}</div>}
+      <div className="text-xs text-muted mt-3">三维场景编辑与碰撞代理绘制为后续增强；当前支持导入、标定字段、项目绑定与环境/任务拆分，碰撞代理通过配置 colliders 提供。</div>
     </div>
   )
 }

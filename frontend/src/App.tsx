@@ -2,7 +2,7 @@ import { NavLink, Route, Routes, Navigate } from 'react-router-dom'
 import SimWorkspace from './SimWorkspace'
 import {
   ProjectsPage, LibraryPage, LibraryDetail, RobotEditPage, DatasetsPage, DatasetDetail,
-  TrainingPage, JobDetail, EvaluationsPage, DeploymentsPage, SettingsPage,
+  TrainingPage, JobDetail, EvaluationsPage, DeploymentsPage, SettingsPage, SceneEditPage,
 } from './components/pages'
 import { cn } from './components/ui'
 
@@ -30,6 +30,7 @@ export default function App() {
           <Route path="/projects/:projectId/sim" element={<SimWorkspace />} />
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/library/:assetId" element={<LibraryDetail />} />
+          <Route path="/scenes/:sceneId/edit" element={<SceneEditPage />} />
           <Route path="/robots/:robotId/edit" element={<RobotEditPage />} />
           <Route path="/datasets" element={<DatasetsPage />} />
           <Route path="/datasets/:datasetId" element={<DatasetDetail />} />

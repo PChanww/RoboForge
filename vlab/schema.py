@@ -237,12 +237,75 @@ class TaskConfig(BaseModel):
     instruction: str = "Place the cup in the tray."
 
 
+class SceneCollider(BaseModel):
+    """Static collision proxy. full_size_m is the FULL extent (MuJoCo half-sizes derived on export)."""
+    name: str
+    shape: Literal["box", "plane", "cylinder"] = "box"
+    full_size_m: list[float] = [0.64, 0.43, 0.056]
+    position: list[float] = [0, 0, 0]
+    quaternion_xyzw: list[float] = [0, 0, 0, 1]
+    friction: list[float] = [0.95, 0.005, 0.0001]
+    enabled: bool = True
+    contype: int = 1
+    conaffinity: int = 1
+    tag: str = "environment"
+
+    @model_validator(mode="after")
+    def _size(self):
+        if len(self.full_size_m) != 3 or any(v <= 0 for v in self.full_size_m[:2]):
+            raise ValueError(f"collider {self.name}: full_size_m needs positive x/y")
+        if len(self.quaternion_xyzw) != 4:
+            raise ValueError(f"collider {self.name}: quaternion_xyzw needs 4 components")
+        return self
+
+
+class SceneInstance(BaseModel):
+    asset_id: str
+    revision: int = 1
+    position: list[float] = [0, 0, 0]
+    quaternion_xyzw: list[float] = [0, 0, 0, 1]
+    uniform_scale: float = 1.0
+
+    @model_validator(mode="after")
+    def _scale(self):
+        if self.uniform_scale <= 0:
+            raise ValueError("uniform_scale must be positive (non-uniform scale not supported)")
+        return self
+
+
+class SceneAssetManifest(BaseModel):
+    asset_id: str
+    revision: int = 1
+    display_name: str = ""
+    category: Literal["scene"] = "scene"
+    provider: Literal["local", "aholo_world"] = "local"
+    source_kind: Literal["generation", "reconstruction", "import"] = "import"
+    remote_task_id: str | None = None
+    source_detail: str = ""
+    created: str = ""
+    files: dict[str, str] = {}
+    format: str = "obj"
+    up_axis: str = "Z"
+    unit_scale: float = 1.0
+    calibrated: bool = False
+    visual_asset: str = "processed/visual.obj"
+    collision_asset: str | None = None
+    calibration: dict = {}
+    bbox: list | None = None
+    status: str = "ready"
+
+
 class SceneConfig(BaseModel):
     physics_backend: Literal["mujoco"] = "mujoco"
     physics_dt: float = 0.002
     gravity: list[float] = [0, 0, -9.81]
     seed: int = 0
     coordinate_convention: str = "z_up_right_handed"
+    environment: SceneInstance | None = None
+    colliders: list[SceneCollider] = []
+    sensor_renderer: Literal["mujoco", "hybrid"] = "mujoco"
+    use_default_table: bool = True
+    work_surface_z: float = 0.0
 
     @model_validator(mode="after")
     def _dt(self):

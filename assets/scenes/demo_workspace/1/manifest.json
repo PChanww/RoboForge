@@ -1,0 +1,32 @@
+{
+ "asset_id": "demo_workspace",
+ "revision": 1,
+ "display_name": "空工作台演示场景",
+ "category": "scene",
+ "provider": "local",
+ "source_kind": "import",
+ "created": "2026-11-10T08:45:40.362327+00:00",
+ "files": {
+  "source/demo_workspace.ply": "b9db2571d69c9e9ea1a2c4398468984b73b6080c24b081c062aff51efa451dff",
+  "processed/visual.obj": "dfe47eeac5c7991a80cb69c9a149e4921cf751886a1b7b618ba3f89c90daefc6"
+ },
+ "format": "ply",
+ "ply_kind": "mesh",
+ "up_axis": "Z",
+ "unit_scale": 1.0,
+ "calibrated": true,
+ "visual_asset": "processed/visual.obj",
+ "bbox": [
+  [
+   -0.4099999964237213,
+   -0.30000001192092896,
+   -0.05000000074505806
+  ],
+  [
+   0.4000000059604645,
+   0.3100000023841858,
+   0.4000000059604645
+  ]
+ ],
+ "status": "ready"
+}

@@ -181,6 +181,14 @@ cd frontend
 npm run build
 ```
 
+## Scenes (environment + collision)
+
+Project scenes can bind an imported/generated environment revision with an instance transform, static collision proxies, and a `use_default_table` switch (avoid duplicate tables). Environment geometry enters the MuJoCo sensor RGB (default renderer); task tray/cup stay separate dynamic objects. Import local `.glb`/`.ply` (PLY is classified by header into mesh / point cloud / 3D Gaussian), bind to a project, then collect → convert → train → evaluate on that scene. Hybrid 3DGS rendering and automatic collision extraction are not implemented and are reported as such.
+
+- API: `POST /api/v1/scene-assets/import`, `GET /api/v1/scene-assets[/{id}]`, `POST /api/v1/scene-assets/{id}/validate`, `POST /api/v1/projects/{id}/bind-scene`, `POST/GET /api/v1/generation-jobs`.
+- UI: Asset center → import scene; `/scenes/:id/edit` → validate / bind to project.
+- Docs: [scene pipeline](docs/SCENE_PIPELINE.zh-CN.md) · [validation record](docs/SCENE_VALIDATION.zh-CN.md).
+
 ## Legacy prototype
 
 `server.py` defaults to port **8765**. The platform backend on port 8767 also provides legacy `/api/*` compatibility routes.
