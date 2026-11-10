@@ -25,11 +25,56 @@ class Session:
         self._lock = threading.Lock()
         self._owner = None
         self._token = None
+        self.epoch = 0
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"sim-{self.id[:6]}")
         self.env = self._executor.submit(PlatformEnv, config, lab_root, robot_id, controller_id).result()
 
     def submit(self, fn, *args, **kwargs):
         return self._executor.submit(fn, *args, **kwargs).result()
+
+    def reset(self, seed=None):
+        def _run():
+            obs = self.env.reset(seed)
+            self.epoch += 1
+            return {"observation": obs, "epoch": self.epoch}
+        return self.submit(_run)
+
+    def _guard(self, token, tick, epoch):
+        self.check_control(token)
+        if epoch is not None and epoch != self.epoch:
+            raise ControlConflict(f"stale epoch {epoch}; current {self.epoch} (reset occurred)")
+        if tick is not None and tick != self.env.scheduler.tick:
+            raise ControlConflict(f"stale tick {tick}; current {self.env.scheduler.tick}")
+
+    def execute(self, token, action, tick=None, epoch=None):
+        # Validation and execution share the session's single serial worker.
+        def _run():
+            self._guard(token, tick, epoch)
+            return self.env.step(action)
+        return self.submit(_run)
+
+    def execute_block(self, token, actions, epoch=None):
+        def _run():
+            self.check_control(token)
+            if epoch is not None and epoch != self.epoch:
+                raise ControlConflict(f"stale epoch {epoch}; current {self.epoch}")
+            for a in actions:  # prevalidate every action before executing any
+                self.env.validate_action(a)
+            obs, executed = None, 0
+            for a in actions:
+                try:
+                    obs = self.env.step(a)
+                    executed += 1
+                except ValueError as exc:
+                    return {"observation": obs, "executed": executed, "error": str(exc)}
+            return {"observation": obs, "executed": executed}
+        return self.submit(_run)
+
+    def expert(self, token, epoch=None):
+        def _run():
+            self._guard(token, None, epoch)
+            return self.env.step(self.env.servo_expert_action())
+        return self.submit(_run)
 
     def acquire(self, owner: str) -> str:
         with self._lock:

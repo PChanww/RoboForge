@@ -15,9 +15,9 @@ from PIL import Image
 
 import arm
 
-from . import tasks
+from . import kinematics, tasks
 from .mjcf import mesh_files, robot_xml
-from .scheduler import Scheduler
+from .scheduler import CameraBuffer, Scheduler
 from .schema import ProjectConfig
 
 SCHEMA_VERSION = "1.0"
@@ -42,21 +42,35 @@ class PlatformEnv:
                            else next(c for c in config.controllers if c.id == controller_id))
         self._renderers = {}
         self.model = self.data = None
-        self._frames = {}
+        self._buffers = {}
         self._state = None
         self.reset(config.scene.seed)
 
     # -- model construction -------------------------------------------------
+    def _has_5r_chain(self):
+        names = {j.name for j in self.robot.joints}
+        return {"waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"} <= names
+
     def _ik(self, point):
-        if self.robot.id == "lux3d_5r" and self.controller.mode == "cartesian_delta_ik":
-            return arm.ik(point)
-        raise UnsupportedMode(f"robot {self.robot.id} has no analytic IK for {self.controller.mode}")
+        if self.controller.mode != "cartesian_delta_ik":
+            raise UnsupportedMode(f"robot {self.robot.id} has no analytic IK for {self.controller.mode}")
+        if not self._has_5r_chain():
+            raise UnsupportedMode(f"robot {self.robot.id} lacks the fixed-attitude 5R chain")
+        return kinematics.analytic_ik(point, kinematics.chain_params(self.robot))
 
     def supported_modes(self):
         modes = ["joint_position"]
-        if self.robot.id == "lux3d_5r":
+        if self._has_5r_chain():
             modes.append("cartesian_delta_ik")
         return modes
+
+    def validate_kinematics(self, targets=None):
+        if not self._has_5r_chain():
+            return {"consistent": False, "reason": "no 5R chain"}
+        if targets is None:
+            targets = [[-.16, .095, .148], [-.11, -.066, .041], [.133, .05, .05],
+                       [-.11, -.066, .129], [.5, .5, .3]]
+        return kinematics.validate(self.model, self.data, self.robot, self._eef, targets, self._qposadr)
 
     def _build(self, seed):
         cfg = self.config
@@ -111,6 +125,7 @@ class PlatformEnv:
         self._last_action = [0.0] * self.controller.action_dim
         self._servo_phase = 0
         self._servo_dwell = 0
+        self._ik_error = None
         if self.controller.mode == "cartesian_delta_ik":
             ik = self._ik(self._target)
             for name, q in zip(("waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"), ik):
@@ -130,7 +145,7 @@ class PlatformEnv:
         self.scheduler = Scheduler(self.config.scene.physics_dt, self.controller.frequency_hz, fps)
         self._latency = {s.id: s.latency_s for s in self.config.sensors}
         self._judge = tasks.Judge(self.model, self.data, self.config.task, self._asset_radius, self._asset_height)
-        self._frames = {s.id: None for s in self.config.sensors}
+        self._buffers = {s.id: CameraBuffer() for s in self.config.sensors}
         self._capture_all(0.0)
         self._sample_state(0.0)
         return self.observation()
@@ -152,14 +167,18 @@ class PlatformEnv:
         renderer.update_scene(self.data, camera=sensor.id)
         return renderer.render()
 
+    def _push_frame(self, sensor, episode_time):
+        frame = self._render_camera(sensor)
+        self._buffers[sensor.id].push({
+            "capture_time": round(episode_time, 6),
+            "available_time": round(episode_time + self._latency[sensor.id], 6),
+            "width": sensor.resolution[0], "height": sensor.resolution[1],
+            "jpeg_b64": _jpeg_b64(frame)})
+        self.scheduler.record_capture(sensor.id, episode_time)
+
     def _capture_all(self, episode_time):
         for s in self.config.sensors:
-            frame = self._render_camera(s)
-            self._frames[s.id] = {"capture_time": round(episode_time, 6),
-                                  "available_time": round(episode_time + self._latency[s.id], 6),
-                                  "width": s.resolution[0], "height": s.resolution[1],
-                                  "jpeg_b64": _jpeg_b64(frame)}
-            self.scheduler.record_capture(s.id, episode_time)
+            self._push_frame(s, episode_time)
 
     def _sample_state(self, episode_time):
         pos = {n: float(self.data.qpos[self._qposadr[n]]) for n in self._joints}
@@ -200,10 +219,16 @@ class PlatformEnv:
     def _apply(self, a):
         c = self.controller
         if c.mode == "cartesian_delta_ik":
-            self._target = np.clip(self._target + c.max_delta_m * a[:3],
-                                   c.workspace_min, c.workspace_max)
+            new_target = np.clip(self._target + c.max_delta_m * a[:3],
+                                 c.workspace_min, c.workspace_max)
             self._grip_target = self._closed + (a[3] + 1) * .5 * (self._open - self._closed)
-            ik = self._ik(self._target)
+            try:
+                ik = self._ik(new_target)
+                self._target = new_target
+                self._ik_error = None
+            except kinematics.Unreachable as exc:
+                self._ik_error = exc.reason  # keep last valid control target
+                ik = self._ik(self._target)
             for name, q in zip(("waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"), ik):
                 self.data.ctrl[self._ctrl_index[name]] = q
             if self.robot.gripper:
@@ -232,13 +257,7 @@ class PlatformEnv:
             events.extend((t, s) for t in self.scheduler.capture_times_in(t_start, t_end, s.id))
         for t, s in sorted(events, key=lambda x: x[0]):
             self._step_to(t)
-            frame = self._render_camera(s)
-            actual = self.episode_time()
-            self._frames[s.id] = {"capture_time": round(actual, 6),
-                                  "available_time": round(actual + self._latency[s.id], 6),
-                                  "width": s.resolution[0], "height": s.resolution[1],
-                                  "jpeg_b64": _jpeg_b64(frame)}
-            self.scheduler.record_capture(s.id, actual)
+            self._push_frame(s, self.episode_time())
         self._step_to(t_end)
         self._sample_state(self.episode_time())
         self.scheduler.record_control(self.episode_time())
@@ -248,14 +267,30 @@ class PlatformEnv:
     # -- observation / metrics ---------------------------------------------
     def observation(self, decision_time=None):
         t = self.episode_time() if decision_time is None else decision_time
-        frames = {}
-        for cid, f in self._frames.items():
-            frames[cid] = f if (f and f["available_time"] <= t + 1e-9) else None
+        frames, status = {}, {}
+        elapsed = max(t, 1e-6)
+        for s in self.config.sensors:
+            buf = self._buffers[s.id]
+            f = buf.latest_available(t)
+            frames[s.id] = f
+            captures = self.scheduler.capture_count[s.id]
+            status[s.id] = {
+                "state": "ok" if f else ("waiting" if buf.frames else "no_frame"),
+                "frame_id": f["frame_id"] if f else None,
+                "capture_time": f["capture_time"] if f else None,
+                "available_time": f["available_time"] if f else None,
+                "age_s": round(t - f["capture_time"], 6) if f else None,
+                "configured_fps": s.fps,
+                "actual_capture_fps": round(captures / elapsed, 3),
+                "pending_frames": buf.pending(t),
+                "evicted_frames": buf.evicted,
+                "queue_len": len(buf.frames),
+            }
         return {"schema_version": SCHEMA_VERSION, "robot": self.robot.id,
                 "controller": self.controller.id, "control_mode": self.controller.mode,
                 "config_version": self.config.version, "tick": self.scheduler.tick,
                 "sim_time": round(t, 6), "seed": self.seed,
-                "state": self._state, "images": frames,
+                "state": self._state, "images": frames, "camera_status": status,
                 "timing": self.scheduler.timing_summary(t, frames),
                 "instruction": self.config.task.instruction}
 
@@ -322,7 +357,7 @@ class PlatformEnv:
         return [*delta.tolist(), grip]
 
     def render(self, camera="front", width=800, height=540):
-        if camera not in self._frames:
+        if camera not in self._buffers:
             raise ValueError(f"unknown camera {camera}")
         key = (width, height)
         if key not in self._renderers:

@@ -11,6 +11,7 @@ interface State {
   metrics: any | null
   sessionId: string | null
   token: string | null
+  epoch: number
   selection: Selection
   running: boolean
   busy: boolean
@@ -38,6 +39,7 @@ export const useStore = create<State>((set, get) => ({
   metrics: null,
   sessionId: null,
   token: null,
+  epoch: 0,
   selection: null,
   running: false,
   busy: false,
@@ -54,6 +56,16 @@ export const useStore = create<State>((set, get) => ({
       set({ config, dirty: false })
       await get().reloadSession()
       get().log(`已加载配置 v${config.version}，会话就绪`)
+      window.addEventListener('pagehide', () => {
+        if (runTimer) { clearInterval(runTimer); runTimer = null }
+        const { sessionId, token } = get()
+        if (sessionId && token) {
+          fetch(`/api/v1/sessions/${sessionId}/control/release`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token }), keepalive: true,
+          }).catch(() => {})
+        }
+      })
     } catch (e: any) {
       set({ error: e.message })
       get().log(e.message, 'error')
@@ -80,9 +92,9 @@ export const useStore = create<State>((set, get) => ({
       await api.deleteSession(sessionId).catch(() => {})
     }
     const cfg = get().config!
-    const { id, observation } = await api.createSession(cfg.project_id)
+    const { id, observation, epoch } = await api.createSession(cfg.project_id)
     const { token: tok } = await api.acquire(id, 'manual')
-    set({ sessionId: id, token: tok, observation, metrics: null })
+    set({ sessionId: id, token: tok, epoch, observation, metrics: null })
   },
 
   save: async () => {
@@ -112,10 +124,10 @@ export const useStore = create<State>((set, get) => ({
     const { sessionId } = get()
     if (!sessionId) return
     try {
-      const obs = await api.reset(sessionId, seed)
+      const r = await api.reset(sessionId, seed)
       const res = await api.result(sessionId)
-      set({ observation: obs, metrics: res.metrics })
-      get().log(`重置 episode（seed=${obs.seed}）`)
+      set({ observation: r.observation, epoch: r.epoch, metrics: res.metrics })
+      get().log(`重置 episode（seed=${r.observation.seed}, epoch=${r.epoch}）`)
     } catch (e: any) { get().log(e.message, 'error') }
   },
 
@@ -124,7 +136,7 @@ export const useStore = create<State>((set, get) => ({
     if (!sessionId || !token || stepping) return
     stepping = true
     try {
-      const obs = await api.action(sessionId, token, [0, 0, 0, 1])
+      const obs = await api.action(sessionId, token, [0, 0, 0, 1], get().epoch)
       const res = await api.result(sessionId)
       set({ observation: obs, metrics: res.metrics })
     } catch (e: any) { get().log(e.message, 'error') }
@@ -136,10 +148,10 @@ export const useStore = create<State>((set, get) => ({
     if (!sessionId || !token || stepping) return
     stepping = true
     try {
-      const obs = await api.expertStep(sessionId, token)
+      const obs = await api.expertStep(sessionId, token, get().epoch)
       const res = await api.result(sessionId)
       set({ observation: obs, metrics: res.metrics })
-      if (res.metrics.success) { get().log('抓放成功（脚本专家）'); if (get().running) get().toggleRun() }
+      if (res.metrics.success) { get().log('抓放成功（闭环伺服专家）'); if (get().running) get().toggleRun() }
     } catch (e: any) { get().log(e.message, 'error'); if (get().running) get().toggleRun() }
     finally { stepping = false }
   },

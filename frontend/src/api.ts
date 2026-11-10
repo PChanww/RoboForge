@@ -24,17 +24,18 @@ export const api = {
   validateConfig: (cfg: ProjectConfig) =>
     req<{ valid: boolean; issues: string[] }>('POST', '/api/v1/config/validate', cfg),
   createSession: (project = 'default') =>
-    req<{ id: string; observation: Observation }>('POST', '/api/v1/sessions', { project }),
-  reset: (sid: string, seed?: number) => req<Observation>('POST', `/api/v1/sessions/${sid}/reset`, { seed }),
+    req<{ id: string; epoch: number; observation: Observation }>('POST', '/api/v1/sessions', { project }),
+  reset: (sid: string, seed?: number) =>
+    req<{ observation: Observation; epoch: number }>('POST', `/api/v1/sessions/${sid}/reset`, { seed }),
   observation: (sid: string) => req<Observation>('GET', `/api/v1/sessions/${sid}/observation`),
   acquire: (sid: string, owner: string) =>
     req<{ token: string }>('POST', `/api/v1/sessions/${sid}/control/acquire`, { owner }),
   release: (sid: string, token: string) =>
     req('POST', `/api/v1/sessions/${sid}/control/release`, { token }),
-  action: (sid: string, token: string, action: number[]) =>
-    req<Observation>('POST', `/api/v1/sessions/${sid}/action`, { token, action }),
-  expertStep: (sid: string, token: string) =>
-    req<Observation>('POST', `/api/v1/sessions/${sid}/expert_step`, { token }),
+  action: (sid: string, token: string, action: number[], epoch?: number) =>
+    req<Observation>('POST', `/api/v1/sessions/${sid}/action`, { token, action, epoch }),
+  expertStep: (sid: string, token: string, epoch?: number) =>
+    req<Observation>('POST', `/api/v1/sessions/${sid}/expert_step`, { token, epoch }),
   result: (sid: string) => req<{ observation: Observation; metrics: any }>('GET', `/api/v1/sessions/${sid}/result`),
   deleteSession: (sid: string) => req('DELETE', `/api/v1/sessions/${sid}`),
 }

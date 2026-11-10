@@ -39,17 +39,20 @@ class AcquireBody(BaseModel):
 
 class TokenBody(BaseModel):
     token: str
+    epoch: int | None = None
 
 
 class ActionBody(BaseModel):
     token: str
     action: list[float]
     tick: int | None = None
+    epoch: int | None = None
 
 
 class ActionBlockBody(BaseModel):
     token: str
     actions: list[list[float]]
+    epoch: int | None = None
 
 
 def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
@@ -160,7 +163,8 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         cfg = store.load(body.project)
         s = manager.create(cfg, lab_root, body.robot_id, body.controller_id)
         return {"id": s.id, "robot": s.env.robot.id, "controller": s.env.controller.id,
-                "config_version": cfg.version, "observation": s.submit(s.env.observation)}
+                "config_version": cfg.version, "epoch": s.epoch,
+                "observation": s.submit(s.env.observation)}
 
     @app.get("/api/v1/sessions")
     def list_sessions():
@@ -168,13 +172,13 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
 
     @app.post("/api/v1/sessions/{sid}/reset")
     def reset_session(sid: str, body: ResetBody):
-        s = _session(sid)
-        return s.submit(s.env.reset, body.seed)
+        return _session(sid).reset(body.seed)
 
     @app.get("/api/v1/sessions/{sid}/observation")
     def observation(sid: str):
         s = _session(sid)
-        return s.submit(s.env.observation)
+        obs = s.submit(s.env.observation)
+        return {**obs, "epoch": s.epoch}
 
     @app.post("/api/v1/sessions/{sid}/control/acquire")
     def acquire(sid: str, body: AcquireBody):
@@ -188,34 +192,24 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     @app.post("/api/v1/sessions/{sid}/action")
     def action(sid: str, body: ActionBody):
         s = _session(sid)
-        s.check_control(body.token)
-        if body.tick is not None and body.tick != s.env.scheduler.tick:
-            raise HTTPException(409, f"stale tick {body.tick}; current {s.env.scheduler.tick}")
         try:
-            return s.submit(s.env.step, body.action)
+            return s.execute(body.token, body.action, tick=body.tick, epoch=body.epoch)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
 
     @app.post("/api/v1/sessions/{sid}/action_block")
     def action_block(sid: str, body: ActionBlockBody):
         s = _session(sid)
-        s.check_control(body.token)
-        obs = None
         try:
-            for a in body.actions:
-                obs = s.submit(s.env.step, a)
+            return s.execute_block(body.token, body.actions, epoch=body.epoch)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
-        return obs
 
     @app.post("/api/v1/sessions/{sid}/expert_step")
     def expert_step(sid: str, body: TokenBody):
         s = _session(sid)
-        s.check_control(body.token)
-        def _run():
-            return s.env.step(s.env.expert_action())
         try:
-            return s.submit(_run)
+            return s.expert(body.token, epoch=body.epoch)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
 

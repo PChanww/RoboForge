@@ -56,3 +56,45 @@ class Scheduler:
                 "control_period_s": self.control_period,
                 "camera_period_s": self.camera_period,
                 "physics_dt_s": self.dt}
+
+
+class CameraBuffer:
+    """Bounded per-camera frame queue ordered by capture time.
+
+    Keeps frames that are not yet available (available_time in the future) so a
+    delayed camera still serves the latest *available* historical frame instead of
+    overwriting it with an unreadable new one. History is evicted oldest-first and
+    the queue length is capped to bound memory over long runs.
+    """
+
+    TOL = 1e-6
+
+    def __init__(self, maxlen: int = 96):
+        self.maxlen = maxlen
+        self.reset()
+
+    def reset(self):
+        self.frames = []
+        self.next_id = 0
+        self.evicted = 0
+
+    def push(self, frame: dict):
+        f = dict(frame)
+        f["frame_id"] = self.next_id
+        self.next_id += 1
+        self.frames.append(f)
+        if len(self.frames) > self.maxlen:
+            self.evicted += len(self.frames) - self.maxlen
+            self.frames = self.frames[-self.maxlen:]
+
+    def latest_available(self, decision_time: float):
+        best = None
+        for f in self.frames:  # ascending capture/available time
+            if f["available_time"] <= decision_time + self.TOL:
+                best = f
+            else:
+                break
+        return best
+
+    def pending(self, decision_time: float):
+        return sum(1 for f in self.frames if f["available_time"] > decision_time + self.TOL)
