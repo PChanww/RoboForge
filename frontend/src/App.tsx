@@ -1,38 +1,47 @@
-import { useEffect } from 'react'
-import { useStore } from './store'
-import Toolbar from './components/Toolbar'
-import TreePanel from './components/TreePanel'
-import PropertiesPanel from './components/PropertiesPanel'
-import Scene from './components/Scene'
-import CameraViews from './components/CameraViews'
-import BottomPanel from './components/BottomPanel'
+import { NavLink, Route, Routes, Navigate } from 'react-router-dom'
+import SimWorkspace from './SimWorkspace'
+import {
+  ProjectsPage, LibraryPage, LibraryDetail, RobotEditPage, DatasetsPage, DatasetDetail,
+  TrainingPage, JobDetail, EvaluationsPage, DeploymentsPage, SettingsPage,
+} from './components/pages'
+import { cn } from './components/ui'
+
+const nav = [
+  ['/projects', '项目'], ['/library', '资产'], ['/datasets', '数据集'],
+  ['/training', '训练'], ['/evaluations', '评测'], ['/deployments', '部署'], ['/settings', '设置'],
+]
 
 export default function App() {
-  const init = useStore((s) => s.init)
-  const error = useStore((s) => s.error)
-  const busy = useStore((s) => s.busy)
-  useEffect(() => { init() }, [init])
   return (
-    <div className="h-full flex flex-col">
-      <Toolbar />
-      {error && <div className="bg-red-900/50 text-red-200 text-xs px-3 py-1.5 border-b border-red-800">{error}</div>}
-      <div className="flex-1 flex min-h-0">
-        <div className="w-56 border-r border-edge bg-panel2 overflow-hidden">
-          <TreePanel />
-        </div>
-        <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex-1 relative min-h-0">
-            <Scene />
-            {busy && <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-accent text-sm">处理中…</div>}
-          </div>
-          <CameraViews />
-        </div>
-        <div className="w-72 border-l border-edge bg-panel2 overflow-hidden">
-          <PropertiesPanel />
-        </div>
-      </div>
-      <div className="h-44 border-t border-edge">
-        <BottomPanel />
+    <div className="h-full flex flex-col overflow-hidden">
+      <nav className="flex items-center gap-1 px-3 h-10 shrink-0 bg-panel2 border-b border-edge">
+        <span className="text-accent font-semibold text-sm mr-3">RoboForge</span>
+        {nav.map(([to, label]) => (
+          <NavLink key={to} to={to}
+            className={({ isActive }) => cn('px-2 py-1 rounded text-xs', isActive ? 'bg-panel text-accent' : 'text-muted hover:text-ink')}>
+            {label}
+          </NavLink>
+        ))}
+      </nav>
+      <div className="flex-1 min-h-0 overflow-auto">
+        <Routes>
+          <Route path="/" element={<Navigate to="/projects/default/sim" replace />} />
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/projects/:projectId/sim" element={<SimWorkspace />} />
+          <Route path="/library" element={<LibraryPage />} />
+          <Route path="/library/:assetId" element={<LibraryDetail />} />
+          <Route path="/robots/:robotId/edit" element={<RobotEditPage />} />
+          <Route path="/datasets" element={<DatasetsPage />} />
+          <Route path="/datasets/:datasetId" element={<DatasetDetail />} />
+          <Route path="/training" element={<TrainingPage />} />
+          <Route path="/training/:jobId" element={<JobDetail />} />
+          <Route path="/evaluations" element={<EvaluationsPage />} />
+          <Route path="/evaluations/:runId" element={<EvaluationsPage />} />
+          <Route path="/deployments" element={<DeploymentsPage />} />
+          <Route path="/deployments/:packageId" element={<DeploymentsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/projects" replace />} />
+        </Routes>
       </div>
     </div>
   )

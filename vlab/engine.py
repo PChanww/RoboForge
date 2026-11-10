@@ -126,6 +126,7 @@ class PlatformEnv:
         self._servo_phase = 0
         self._servo_dwell = 0
         self._ik_error = None
+        self._render_error = None
         if self.controller.mode == "cartesian_delta_ik":
             ik = self._ik(self._target)
             for name, q in zip(("waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"), ik):
@@ -168,7 +169,13 @@ class PlatformEnv:
         return renderer.render()
 
     def _push_frame(self, sensor, episode_time):
-        frame = self._render_camera(sensor)
+        if self._render_error:
+            return  # headless/no-GL: physics still runs, cameras report unavailable
+        try:
+            frame = self._render_camera(sensor)
+        except Exception as exc:  # GLFW/GL unavailable in a detached process
+            self._render_error = f"{type(exc).__name__}: {exc}"
+            return
         self._buffers[sensor.id].push({
             "capture_time": round(episode_time, 6),
             "available_time": round(episode_time + self._latency[sensor.id], 6),
@@ -275,13 +282,15 @@ class PlatformEnv:
             frames[s.id] = f
             captures = self.scheduler.capture_count[s.id]
             status[s.id] = {
-                "state": "ok" if f else ("waiting" if buf.frames else "no_frame"),
+                "state": ("render_unavailable" if self._render_error
+                          else "ok" if f else ("waiting" if buf.frames else "no_frame")),
+                "render_error": self._render_error,
                 "frame_id": f["frame_id"] if f else None,
                 "capture_time": f["capture_time"] if f else None,
                 "available_time": f["available_time"] if f else None,
                 "age_s": round(t - f["capture_time"], 6) if f else None,
                 "configured_fps": s.fps,
-                "actual_capture_fps": round(captures / elapsed, 3),
+                "actual_capture_fps": round(captures / elapsed, 3) if t > 1e-6 else None,
                 "pending_frames": buf.pending(t),
                 "evicted_frames": buf.evicted,
                 "queue_len": len(buf.frames),

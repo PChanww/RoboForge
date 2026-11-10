@@ -54,7 +54,7 @@ export const useStore = create<State>((set, get) => ({
       set({ busy: true, error: null })
       const config = await api.getConfig()
       set({ config, dirty: false })
-      await get().reloadSession()
+      if (!get().sessionId) await get().reloadSession()
       get().log(`已加载配置 v${config.version}，会话就绪`)
       window.addEventListener('pagehide', () => {
         if (runTimer) { clearInterval(runTimer); runTimer = null }

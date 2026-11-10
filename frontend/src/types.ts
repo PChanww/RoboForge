@@ -96,11 +96,25 @@ export interface ProjectConfig {
 }
 
 export interface Frame {
+  frame_id?: number
   capture_time: number
   available_time: number
   width: number
   height: number
   jpeg_b64: string
+}
+
+export interface CameraStatus {
+  state: string
+  frame_id: number | null
+  capture_time: number | null
+  available_time: number | null
+  age_s: number | null
+  configured_fps: number
+  actual_capture_fps: number
+  pending_frames: number
+  evicted_frames: number
+  queue_len: number
 }
 
 export interface Observation {
@@ -122,6 +136,8 @@ export interface Observation {
     object_pose: { position: number[]; matrix: number[][] }
   }
   images: Record<string, Frame | null>
+  camera_status?: Record<string, CameraStatus>
+  epoch?: number
   timing: {
     image_age_s: Record<string, number>
     capture_count: Record<string, number>

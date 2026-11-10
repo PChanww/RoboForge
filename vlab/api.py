@@ -55,6 +55,11 @@ class ActionBlockBody(BaseModel):
     epoch: int | None = None
 
 
+class JobBody(BaseModel):
+    kind: str
+    params: dict = {}
+
+
 def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     app = FastAPI(title="VLA Lab Platform", version=SCHEMA_VERSION)
     store = ConfigStore(lab_root / "projects")
@@ -300,6 +305,117 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     @app.get("/api/frame.jpg")
     def legacy_frame():
         return _legacy("GET", "/api/frame.jpg", {}, {})
+
+    # -- background jobs / library / datasets / deployments ------------------
+    from .jobs import JobManager
+    from .aux_model import AuxModel
+    jobs = JobManager(lab_root)
+
+    @app.post("/api/v1/jobs")
+    def create_job(body: JobBody):
+        try:
+            return jobs.create(body.kind, body.params)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.get("/api/v1/jobs")
+    def list_jobs():
+        return {"jobs": jobs.list()}
+
+    @app.get("/api/v1/jobs/{jid}")
+    def get_job(jid: str):
+        j = jobs.get(jid)
+        if not j:
+            raise HTTPException(404, "unknown job")
+        return j
+
+    @app.get("/api/v1/jobs/{jid}/logs")
+    def job_logs(jid: str, tail: int = 200):
+        return {"lines": jobs.logs(jid, tail)}
+
+    @app.post("/api/v1/jobs/{jid}/stop")
+    def stop_job(jid: str):
+        try:
+            return jobs.stop(jid)
+        except KeyError:
+            raise HTTPException(404, "unknown job")
+
+    @app.get("/api/v1/projects")
+    def list_projects():
+        out = []
+        for d in sorted(store.root.iterdir()):
+            cur = d / "current.json"
+            if cur.is_file():
+                cfg = json.loads(cur.read_text(encoding="utf-8"))
+                out.append({"id": d.name, "version": cfg.get("version"),
+                            "robots": [r["id"] for r in cfg.get("robots", [])],
+                            "task": cfg.get("task", {}).get("id")})
+        return {"projects": out}
+
+    @app.get("/api/v1/datasets")
+    def list_datasets():
+        out = []
+        staging = lab_root / "datasets" / "staging" / "manifest.json"
+        if staging.is_file():
+            m = json.loads(staging.read_text(encoding="utf-8"))
+            out.append({"id": "staging", "kind": "staging", "episodes": m["summary"]["episodes"],
+                        "frames": m["summary"]["frames"], "successes": m["summary"]["successes"],
+                        "control_source": m.get("control_source")})
+        ler = lab_root / "datasets" / "lerobot"
+        if ler.is_dir():
+            for d in sorted(ler.iterdir()):
+                if (d / "meta" / "info.json").is_file():
+                    info = json.loads((d / "meta" / "info.json").read_text(encoding="utf-8"))
+                    out.append({"id": d.name, "kind": "lerobot", "episodes": info.get("total_episodes"),
+                                "frames": info.get("total_frames"), "fps": info.get("fps")})
+        return {"datasets": out}
+
+    @app.get("/api/v1/datasets/{did}")
+    def get_dataset(did: str):
+        if did == "staging":
+            p = lab_root / "datasets" / "staging" / "manifest.json"
+        else:
+            p = lab_root / "datasets" / "lerobot" / did / "meta" / "info.json"
+        if not p.is_file():
+            raise HTTPException(404, "unknown dataset")
+        return json.loads(p.read_text(encoding="utf-8"))
+
+    @app.get("/api/v1/asset-library")
+    def asset_library():
+        items = [{"id": k, "name": v, "category": "object", "source": "builtin"} for k, v in
+                 {"standard": "标准杯", "tall": "高杯", "wide": "宽口杯"}.items()]
+        imp = lab_root / "assets" / "imported"
+        if imp.is_dir():
+            for d in sorted(imp.iterdir()):
+                mf = d / "manifest.json"
+                if mf.is_file():
+                    m = json.loads(mf.read_text(encoding="utf-8"))
+                    items.append({"id": f"imported/{d.name}", "name": d.name, "category": "object",
+                                  "source": m.get("source"), "generation_id": m.get("generation_id"),
+                                  "height_m": m.get("height_m")})
+        rob = lab_root / "assets" / "robot"
+        if rob.is_dir():
+            items.append({"id": "robot/lux3d", "name": "lux3d 机械臂外观", "category": "robot",
+                          "source": "lux3d", "generation_id": "5025807"})
+        return {"assets": items}
+
+    @app.get("/api/v1/deployments")
+    def list_deployments():
+        out = []
+        dep = lab_root / "deploy"
+        if dep.is_dir():
+            for d in sorted(dep.iterdir()):
+                mf = d / "manifest.json"
+                if mf.is_file():
+                    m = json.loads(mf.read_text(encoding="utf-8"))
+                    out.append({"id": d.name, "package_id": m.get("package_id"),
+                                "robot": m.get("robot"), "created": m.get("created_utc")})
+        return {"deployments": out}
+
+    @app.get("/api/v1/generation-jobs")
+    def generation_status():
+        return {"provider": "aholo-lux3d", "aux": AuxModel().status(),
+                "note": "set AHOLO_API_KEY / AUX_MODEL_* in the backend environment to enable live generation"}
 
     @app.on_event("shutdown")
     def _shutdown():

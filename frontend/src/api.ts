@@ -38,4 +38,17 @@ export const api = {
     req<Observation>('POST', `/api/v1/sessions/${sid}/expert_step`, { token, epoch }),
   result: (sid: string) => req<{ observation: Observation; metrics: any }>('GET', `/api/v1/sessions/${sid}/result`),
   deleteSession: (sid: string) => req('DELETE', `/api/v1/sessions/${sid}`),
+  // jobs / library / datasets / deployments
+  createJob: (kind: string, params: Record<string, unknown> = {}) =>
+    req<any>('POST', '/api/v1/jobs', { kind, params }),
+  jobs: () => req<{ jobs: any[] }>('GET', '/api/v1/jobs'),
+  job: (id: string) => req<any>('GET', `/api/v1/jobs/${id}`),
+  jobLogs: (id: string) => req<{ lines: string[] }>('GET', `/api/v1/jobs/${id}/logs`),
+  stopJob: (id: string) => req<any>('POST', `/api/v1/jobs/${id}/stop`, {}),
+  projects: () => req<{ projects: any[] }>('GET', '/api/v1/projects'),
+  datasets: () => req<{ datasets: any[] }>('GET', '/api/v1/datasets'),
+  dataset: (id: string) => req<any>('GET', `/api/v1/datasets/${id}`),
+  assetLibrary: () => req<{ assets: any[] }>('GET', '/api/v1/asset-library'),
+  deployments: () => req<{ deployments: any[] }>('GET', '/api/v1/deployments'),
+  generationStatus: () => req<any>('GET', '/api/v1/generation-jobs'),
 }
