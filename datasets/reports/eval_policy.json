@@ -10,23 +10,23 @@
      "success": false,
      "tick": 200,
      "lifted": false,
-     "grasped": false
+     "grasped": true
     },
     {
      "asset": "standard",
      "seed": 1,
      "success": false,
      "tick": 200,
-     "lifted": false,
-     "grasped": false
+     "lifted": true,
+     "grasped": true
     },
     {
      "asset": "standard",
      "seed": 2,
-     "success": false,
-     "tick": 200,
-     "lifted": false,
-     "grasped": false
+     "success": true,
+     "tick": 175,
+     "lifted": true,
+     "grasped": true
     },
     {
      "asset": "tall",
@@ -34,7 +34,7 @@
      "success": false,
      "tick": 200,
      "lifted": false,
-     "grasped": false
+     "grasped": true
     },
     {
      "asset": "wide",
@@ -42,10 +42,10 @@
      "success": false,
      "tick": 200,
      "lifted": false,
-     "grasped": false
+     "grasped": true
     }
    ],
-   "successes": 0,
+   "successes": 1,
    "n": 5
   },
   "heldout_spawn": {
@@ -53,10 +53,10 @@
     {
      "asset": "standard",
      "seed": 30,
-     "success": false,
-     "tick": 200,
-     "lifted": false,
-     "grasped": false
+     "success": true,
+     "tick": 178,
+     "lifted": true,
+     "grasped": true
     },
     {
      "asset": "standard",
@@ -69,21 +69,21 @@
     {
      "asset": "tall",
      "seed": 30,
-     "success": false,
-     "tick": 200,
-     "lifted": false,
-     "grasped": false
+     "success": true,
+     "tick": 135,
+     "lifted": true,
+     "grasped": true
     },
     {
      "asset": "wide",
      "seed": 30,
      "success": false,
      "tick": 200,
-     "lifted": false,
-     "grasped": false
+     "lifted": true,
+     "grasped": true
     }
    ],
-   "successes": 0,
+   "successes": 2,
    "n": 4
   },
   "heldout_asset": {
@@ -94,15 +94,15 @@
      "success": false,
      "tick": 200,
      "lifted": false,
-     "grasped": false
+     "grasped": true
     },
     {
      "asset": "imported/lux3d-ivory",
      "seed": 1,
      "success": false,
      "tick": 200,
-     "lifted": false,
-     "grasped": false
+     "lifted": true,
+     "grasped": true
     }
    ],
    "successes": 0,

@@ -1,10 +1,10 @@
 {
- "package": "default-v1-20261110001038",
- "weights_sha256": "bae8310490ed2b208294c3815dc98a8b2f629f446dc791bc3086efef785f3520",
+ "package": "default-v1-20261110021923",
+ "weights_sha256": "7b6e54262c10d41183d5a14000d75cac319b197a5e1bffa2e87c88a6c1ad2e17",
  "independent_process": {
   "expert": {
    "returncode": 0,
-   "stdout": "{\"controller\": \"expert\", \"success\": true, \"lifted\": true, \"grasped\": true, \"tick\": 157, \"config_version\": 1, \"package\": \"default-v1-20261110001038\"}",
+   "stdout": "{\"controller\": \"expert\", \"success\": true, \"lifted\": true, \"grasped\": true, \"tick\": 157, \"config_version\": 1, \"package\": \"default-v1-20261110021923\"}",
    "stderr": "",
    "result": {
     "controller": "expert",
@@ -13,21 +13,21 @@
     "grasped": true,
     "tick": 157,
     "config_version": 1,
-    "package": "default-v1-20261110001038"
+    "package": "default-v1-20261110021923"
    }
   },
   "policy": {
    "returncode": 0,
-   "stdout": "{\"controller\": \"policy\", \"success\": false, \"lifted\": false, \"grasped\": false, \"tick\": 200, \"config_version\": 1, \"package\": \"default-v1-20261110001038\"}",
+   "stdout": "{\"controller\": \"policy\", \"success\": false, \"lifted\": false, \"grasped\": true, \"tick\": 200, \"config_version\": 1, \"package\": \"default-v1-20261110021923\"}",
    "stderr": "",
    "result": {
     "controller": "policy",
     "success": false,
     "lifted": false,
-    "grasped": false,
+    "grasped": true,
     "tick": 200,
     "config_version": 1,
-    "package": "default-v1-20261110001038"
+    "package": "default-v1-20261110021923"
    }
   }
  },

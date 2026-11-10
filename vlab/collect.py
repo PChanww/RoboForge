@@ -80,8 +80,11 @@ class EpisodeRecorder:
         }
 
 
-def collect(config: ProjectConfig, lab_root: Path, plan: list[dict], out_dir: Path, max_ticks=200):
-    """plan: [{'asset': ..., 'seed': ...}]. Writes episodes + manifest."""
+def collect(config: ProjectConfig, lab_root: Path, plan: list[dict], out_dir: Path, max_ticks=200,
+            expert="servo"):
+    """plan: [{'asset': ..., 'seed': ...}]. expert: 'servo' (closed-loop) or 'openloop'."""
+    source = "closed_loop_servo_expert" if expert == "servo" else "script_expert"
+    act_fn = (lambda e: e.servo_expert_action()) if expert == "servo" else (lambda e: e.expert_action())
     out_dir = Path(out_dir)
     (out_dir / "episodes").mkdir(parents=True, exist_ok=True)
     env = PlatformEnv(config, lab_root)
@@ -96,7 +99,7 @@ def collect(config: ProjectConfig, lab_root: Path, plan: list[dict], out_dir: Pa
             rec.capture()  # initial state S0
             success = False
             while env.scheduler.tick < max_ticks:
-                action = env.expert_action()
+                action = act_fn(env)
                 rec.set_action(action)  # pair S_t with the action taken at S_t
                 env.step(action)
                 if env.metrics()["success"]:
@@ -104,11 +107,11 @@ def collect(config: ProjectConfig, lab_root: Path, plan: list[dict], out_dir: Pa
                     break
                 if env.scheduler.tick < max_ticks:
                     rec.capture()  # next state S_{t+1}
-            arrays = rec.arrays(success, item["asset"], env.seed, "script_expert")
+            arrays = rec.arrays(success, item["asset"], env.seed, source)
             np.savez_compressed(out_dir / "episodes" / f"ep{i:03d}.npz", **arrays)
             row = {"index": i, "asset": item["asset"], "seed": env.seed, "frames": len(rec.frame_time),
                    "success": bool(success), "duration_s": float(rec.frame_time[-1]),
-                   "control_source": "script_expert"}
+                   "control_source": source}
             rows.append(row)
             print(i, row, flush=True)
         manifest = {
@@ -119,7 +122,7 @@ def collect(config: ProjectConfig, lab_root: Path, plan: list[dict], out_dir: Pa
             "robot": config.robots[0].id,
             "joints": [n for n in env._joints],
             "cameras": [s.id for s in config.sensors],
-            "control_source": "script_expert (privileged initial pose; not a learned policy)",
+            "control_source": f"{source} (privileged object pose; not a learned policy)",
             "episodes": rows,
             "summary": {"episodes": len(rows), "successes": sum(r["success"] for r in rows),
                         "frames": sum(r["frames"] for r in rows)},

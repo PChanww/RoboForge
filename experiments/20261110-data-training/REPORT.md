@@ -47,5 +47,22 @@ python scripts/train_bc.py --lab <vla-lab>
 python scripts/train_priv.py --lab <vla-lab>
 # Windows：
 python scripts/eval_policy.py --group all
-python scripts/eval_policy.py --priv --group heldout_spawn
+python scripts/eval_policy.py --priv --group all --out datasets/reports/eval_priv.json
 ```
+
+## 改进（续）：闭环位置伺服专家 → 非零闭环成功率
+
+上文 0/11 的根因是**开环定时专家不可模仿**。新增 `PlatformEnv.servo_expert_action()`：动作＝实测末端到航点的伺服增量，阶段按**位置/接触**切换（接近→下降→闭合→提起→搬运→下放→张开→撤回），不再依赖 tick 定时。该专家自身抓放 **11/11** 成功且更快（约 93 tick）。
+
+用闭环专家重采（21 episode / 1952 帧，`control_source=closed_loop_servo_expert`）、重写 LeRobot、重训后闭环评测：
+
+| 组 | 状态策略（可部署观测，18+4 维） | 特权策略（含物体位姿，21+4 维） |
+| --- | --- | --- |
+| 训练内摆位 | 1/5 | 4/5 |
+| 留出摆位 | 2/4 | **4/4** |
+| 留出资产（Lux3D） | 0/2 | **2/2** |
+| 合计 | 3/11 | **10/11** |
+
+- 特权策略 val MSE 0.0036、重载 0 误差；状态策略 val MSE 0.0060。
+- **结论更新**：训练/保存/重载/独立评测闭环可产出** working 策略**（特权 10/11，含留出摆位与留出资产）。状态策略 3/11 的差距来自**缺少物体位姿可观测性**——可部署的完整性能需视觉策略（SmolVLA / 图像 BC）。此前"0/11"为开环专家基线，已被本闭环结果取代。
+- 产物：`datasets/reports/eval_policy.json`（状态）、`eval_priv.json`（特权）、`train_bc.json`、`train_priv.json`。

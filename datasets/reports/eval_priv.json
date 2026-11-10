@@ -1,0 +1,112 @@
+{
+ "model": "C:\\Users\\31295\\Documents\\Codex\\2026-11-09\\https-www-aholo3d-cn-hackathon-utm\\outputs\\vla-lab\\datasets\\models\\bc_priv_mlp.npz",
+ "policy": "behavior-cloning MLP (state->4D cartesian), not a VLA",
+ "groups": {
+  "in_distribution": {
+   "episodes": [
+    {
+     "asset": "standard",
+     "seed": 0,
+     "success": true,
+     "tick": 94,
+     "lifted": true,
+     "grasped": true
+    },
+    {
+     "asset": "standard",
+     "seed": 1,
+     "success": true,
+     "tick": 87,
+     "lifted": true,
+     "grasped": true
+    },
+    {
+     "asset": "standard",
+     "seed": 2,
+     "success": true,
+     "tick": 94,
+     "lifted": true,
+     "grasped": true
+    },
+    {
+     "asset": "tall",
+     "seed": 0,
+     "success": true,
+     "tick": 83,
+     "lifted": true,
+     "grasped": true
+    },
+    {
+     "asset": "wide",
+     "seed": 0,
+     "success": false,
+     "tick": 200,
+     "lifted": true,
+     "grasped": true
+    }
+   ],
+   "successes": 4,
+   "n": 5
+  },
+  "heldout_spawn": {
+   "episodes": [
+    {
+     "asset": "standard",
+     "seed": 30,
+     "success": true,
+     "tick": 111,
+     "lifted": true,
+     "grasped": true
+    },
+    {
+     "asset": "standard",
+     "seed": 31,
+     "success": true,
+     "tick": 89,
+     "lifted": true,
+     "grasped": true
+    },
+    {
+     "asset": "tall",
+     "seed": 30,
+     "success": true,
+     "tick": 102,
+     "lifted": true,
+     "grasped": true
+    },
+    {
+     "asset": "wide",
+     "seed": 30,
+     "success": true,
+     "tick": 96,
+     "lifted": true,
+     "grasped": true
+    }
+   ],
+   "successes": 4,
+   "n": 4
+  },
+  "heldout_asset": {
+   "episodes": [
+    {
+     "asset": "imported/lux3d-ivory",
+     "seed": 0,
+     "success": true,
+     "tick": 90,
+     "lifted": true,
+     "grasped": true
+    },
+    {
+     "asset": "imported/lux3d-ivory",
+     "seed": 1,
+     "success": true,
+     "tick": 80,
+     "lifted": true,
+     "grasped": true
+    }
+   ],
+   "successes": 2,
+   "n": 2
+  }
+ }
+}

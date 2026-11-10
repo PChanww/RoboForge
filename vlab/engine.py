@@ -109,6 +109,8 @@ class PlatformEnv:
         self._target = np.array([-0.16, 0.095, 0.148])
         self._grip_target = self._open
         self._last_action = [0.0] * self.controller.action_dim
+        self._servo_phase = 0
+        self._servo_dwell = 0
         if self.controller.mode == "cartesian_delta_ik":
             ik = self._ik(self._target)
             for name, q in zip(("waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"), ik):
@@ -282,6 +284,41 @@ class PlatformEnv:
         else:
             xy, z, grip = goal, hover, 1
         delta = np.clip((np.r_[xy, z] - self._target) / self.controller.max_delta_m, -1, 1)
+        return [*delta.tolist(), grip]
+
+    def servo_expert_action(self):
+        """Closed-loop position-servo expert: actions are a function of the MEASURED
+        end-effector pose (and object pose), with phases switched by position/contact
+        rather than by tick. This makes the demonstration imitable in closed loop."""
+        if self.controller.mode != "cartesian_delta_ik":
+            raise UnsupportedMode("servo expert requires cartesian_delta_ik")
+        eef = self.data.xpos[self._eef]
+        cup = self.data.xpos[self._judge.cup]
+        goal = np.asarray(self.config.task.goal_xy)
+        h, gs = self._asset_height, self.config.task.goal_surface_m
+        hover, grab = min(.176, h / 2 + .09), h / 2 + .002
+        lift, drop = h / 2 + .10, gs + h / 2 + .002
+        tol = .005
+        g = self.robot.gripper
+        mean = (self.data.qpos[self._qposadr[g.left_joint]] + self.data.qpos[self._qposadr[g.right_joint]]) / 2
+        grip_norm = float(np.clip((mean - self._closed) / (self._open - self._closed), 0, 1))
+        p = self._servo_phase
+        waypoints = [(cup[0], cup[1], hover), (cup[0], cup[1], grab), (cup[0], cup[1], grab),
+                     (cup[0], cup[1], lift), (goal[0], goal[1], lift), (goal[0], goal[1], drop),
+                     (goal[0], goal[1], drop), (goal[0], goal[1], lift)]
+        grips = [1, 1, -1, -1, -1, -1, 1, 1]
+        wp, grip = np.asarray(waypoints[p]), grips[p]
+        if p in (0, 1, 3, 4, 5) and np.linalg.norm(eef - wp) < tol:
+            self._servo_phase = p + 1
+        elif p == 2:
+            self._servo_dwell = self._servo_dwell + 1 if self._judge.contacts == 2 else 0
+            if self._servo_dwell >= 3:
+                self._servo_phase, self._servo_dwell = 3, 0
+        elif p == 6:
+            self._servo_dwell = self._servo_dwell + 1 if grip_norm > .8 else 0
+            if self._servo_dwell >= 3:
+                self._servo_phase, self._servo_dwell = 7, 0
+        delta = np.clip((wp - eef) / self.controller.max_delta_m, -1, 1)
         return [*delta.tolist(), grip]
 
     def render(self, camera="front", width=800, height=540):

@@ -14,14 +14,16 @@ The following results come from the saved experiment reports. Scripted-expert pe
 | Same motion path with jaws held open | **0/40 successful** | [Arm audit](../experiments/20261109-arm-audit/REPORT.md) |
 | Sampled task workspace, self-collision / analytical IK error | 0 detected / 0.0 mm kinematic error in that test | [Arm audit](../experiments/20261109-arm-audit/REPORT.md) |
 | Camera at 30 FPS with control at 20 Hz | 271 frames over 9 s; mean interval 0.03333 s | [Core report](../experiments/20261109-platform-core/REPORT.md), `tests/test_engine.py` |
-| Expert dataset | 21 episodes / 3,297 frames; official LeRobot loader read-back passed | [Data and training report](../experiments/20261110-data-training/REPORT.md) |
-| State BC policy | Training, checkpoint reload, and evaluation completed; **0/11 closed-loop successes** | [Data and training report](../experiments/20261110-data-training/REPORT.md) |
+| Closed-loop position-servo expert (phases switched by position/contact) | **11/11 successful**, ~93 ticks/episode | [Data and training report](../experiments/20261110-data-training/REPORT.md) |
+| Expert dataset (servo demos) | 21 episodes / 1,952 frames; official LeRobot loader read-back passed | [Data and training report](../experiments/20261110-data-training/REPORT.md) |
+| State BC policy (deployable observation, no object pose) | Training/reload/eval completed; **3/11 closed-loop** | `datasets/reports/eval_policy.json` |
+| Privileged BC policy (object pose included) | **10/11 closed-loop** (held-out spawns 4/4, held-out asset 2/2) | `datasets/reports/eval_priv.json` |
 | Exported bundle in a fresh process | Expert succeeded; learned policy ran without completing the task | [Deployment report](../experiments/20261110-deploy-export/REPORT.md) |
 
 Current constraints:
 
 - The 5R arm uses fixed-orientation analytical IK. It does not offer arbitrary six-dimensional end-effector pose control.
-- The state BC baseline fails closed-loop evaluation. The report identifies timing/phase mismatch with the scripted demonstrations as a likely contributor.
+- Imitation quality depends on expert design and observability. The original open-loop timed expert yielded 0/11 closed-loop; replacing it with a closed-loop position-servo expert raised the privileged policy to 10/11. The state-only policy (3/11) lacks object-pose observability, so full deployable performance still requires a vision policy (SmolVLA / image BC).
 - SmolVLA ran on the historical gantry but did not complete pick-and-place. The new arm's observation/action adaptation and SmolVLA fine-tuning remain pending.
 - Real-hardware transfer has not been validated. URDF/USD export, Isaac Lab, ROS 2/vendor SDK, and ONNX adapters remain pending.
 - Auxiliary-model structured import has been checked; a live auxiliary-model API call has not been validated.
