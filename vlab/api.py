@@ -60,10 +60,21 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         from .make_default_config import build
         store.save(build())
 
-    # Legacy single-threaded lab (preserves the original OpenGL thread binding).
+    # Legacy single-threaded lab, created lazily on first legacy request so startup
+    # does not open an OpenGL context (a second GLFW context in a background process
+    # can segfault; the first session renderer becomes the primary context).
     import server
+    import threading
     legacy_worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="legacy")
-    legacy_lab = legacy_worker.submit(server.Lab).result()
+    legacy_lab = None
+    legacy_lock = threading.Lock()
+
+    def _get_legacy():
+        nonlocal legacy_lab
+        with legacy_lock:
+            if legacy_lab is None:
+                legacy_lab = legacy_worker.submit(server.Lab).result()
+        return legacy_lab
 
     robot_mesh_dir = lab_root / "assets" / "robot"
     if robot_mesh_dir.is_dir():
@@ -260,7 +271,8 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     # -- legacy compatibility (unchanged behavior) -------------------------
     def _legacy(method, path, query, body):
         try:
-            result = legacy_worker.submit(legacy_lab.run, method, path, query, body).result()
+            lab = _get_legacy()
+            result = legacy_worker.submit(lab.run, method, path, query, body).result()
         except server.APIError as exc:
             raise HTTPException(exc.status, str(exc))
         if isinstance(result, bytes):
@@ -298,7 +310,8 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     @app.on_event("shutdown")
     def _shutdown():
         manager.close_all()
-        legacy_worker.submit(legacy_lab.env.close).result()
+        if legacy_lab is not None:
+            legacy_worker.submit(legacy_lab.env.close).result()
         legacy_worker.shutdown(wait=True)
 
     return app
