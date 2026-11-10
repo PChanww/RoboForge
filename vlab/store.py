@@ -57,8 +57,11 @@ def validate_config(config: ProjectConfig, lab_root: Path):
     from .engine import PlatformEnv
     issues = []
     for robot in config.robots:
+        has5r = {"waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"} <= {j.name for j in robot.joints}
+        ctrl = next((c.id for c in config.controllers
+                     if (c.mode == "cartesian_delta_ik") == has5r), config.controllers[0].id)
         try:
-            env = PlatformEnv(config, lab_root, robot_id=robot.id)
+            env = PlatformEnv(config, lab_root, robot_id=robot.id, controller_id=ctrl)
             env.close()
         except Exception as exc:
             issues.append(f"robot {robot.id}: scene build failed: {exc}")

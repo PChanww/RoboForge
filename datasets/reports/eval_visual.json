@@ -1,0 +1,49 @@
+{
+ "policy": "visual BC (image+state, no object pose)",
+ "episodes": [
+  {
+   "asset": "standard",
+   "seed": 0,
+   "success": false
+  },
+  {
+   "asset": "standard",
+   "seed": 1,
+   "success": true
+  },
+  {
+   "asset": "standard",
+   "seed": 30,
+   "success": true
+  },
+  {
+   "asset": "standard",
+   "seed": 31,
+   "success": false
+  },
+  {
+   "asset": "imported/lux3d-ivory",
+   "seed": 0,
+   "success": false
+  },
+  {
+   "asset": "imported/lux3d-ivory",
+   "seed": 1,
+   "success": true
+  }
+ ],
+ "groups": {
+  "in_distribution": {
+   "successes": 1,
+   "n": 2
+  },
+  "heldout_spawn": {
+   "successes": 1,
+   "n": 2
+  },
+  "heldout_asset": {
+   "successes": 1,
+   "n": 2
+  }
+ }
+}

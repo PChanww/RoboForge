@@ -106,8 +106,10 @@ def build() -> ProjectConfig:
                          frequency_hz=20, max_delta_m=None,
                          required_observations=["state"]),
     ]
+    from .make_second_config import build as _second
+    gantry = _second().robots[0]
     return ProjectConfig(project_id="default", version=1, validation_status="validated",
-                         scene=SceneConfig(seed=0), robots=[robot], sensors=sensors,
+                         scene=SceneConfig(seed=0), robots=[robot, gantry], sensors=sensors,
                          controllers=controllers, task=TaskConfig(),
                          provenance={"robot.links.visuals": "model_estimate",
                                      "robot.links.collisions.mass_kg": "user",

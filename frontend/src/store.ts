@@ -12,7 +12,9 @@ interface State {
   sessionId: string | null
   token: string | null
   epoch: number
+  activeRobotId: string
   selection: Selection
+  setRobot: (id: string) => Promise<void>
   running: boolean
   busy: boolean
   error: string | null
@@ -40,6 +42,7 @@ export const useStore = create<State>((set, get) => ({
   sessionId: null,
   token: null,
   epoch: 0,
+  activeRobotId: '',
   selection: null,
   running: false,
   busy: false,
@@ -53,7 +56,7 @@ export const useStore = create<State>((set, get) => ({
     try {
       set({ busy: true, error: null })
       const config = await api.getConfig()
-      set({ config, dirty: false })
+      set({ config, dirty: false, activeRobotId: get().activeRobotId || config.robots[0].id })
       if (!get().sessionId) await get().reloadSession()
       get().log(`已加载配置 v${config.version}，会话就绪`)
       window.addEventListener('pagehide', () => {
@@ -92,9 +95,17 @@ export const useStore = create<State>((set, get) => ({
       await api.deleteSession(sessionId).catch(() => {})
     }
     const cfg = get().config!
-    const { id, observation, epoch } = await api.createSession(cfg.project_id)
+    const robot = cfg.robots.find((r) => r.id === get().activeRobotId) ?? cfg.robots[0]
+    const has5R = ['waist', 'shoulder', 'elbow', 'wrist_pitch', 'wrist_yaw'].every((n) => robot.joints.some((j) => j.name === n))
+    const { id, observation, epoch } = await api.createSession(cfg.project_id, robot.id, has5R ? 'cartesian' : 'joints')
     const { token: tok } = await api.acquire(id, 'manual')
     set({ sessionId: id, token: tok, epoch, observation, metrics: null })
+  },
+
+  setRobot: async (id) => {
+    set({ activeRobotId: id, selection: null })
+    await get().reloadSession()
+    get().log(`切换活动机器人 → ${id}`)
   },
 
   save: async () => {
@@ -170,5 +181,8 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 }))
+
+export const activeRobot = (s: State) =>
+  s.config ? (s.config.robots.find((r) => r.id === s.activeRobotId) ?? s.config.robots[0]) : null
 
 if (import.meta.env.DEV) (window as any).__vlabStore = useStore

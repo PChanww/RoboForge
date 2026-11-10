@@ -4,7 +4,7 @@ import { OrbitControls, Grid, Line, TransformControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { create } from 'zustand'
-import { useStore } from '../store'
+import { useStore, activeRobot } from '../store'
 import type { Link } from '../types'
 import { cn } from './ui'
 
@@ -49,8 +49,8 @@ function Robot() {
   const select = useStore((s) => s.select)
   const showAxes = useView((s) => s.axes)
   const showColliders = useView((s) => s.colliders)
-  if (!config) return null
-  const robot = config.robots[0]
+  const robot = useStore(activeRobot)
+  if (!config || !robot) return null
   const poses = obs?.state.body_poses
   return (
     <group>

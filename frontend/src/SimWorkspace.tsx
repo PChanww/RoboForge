@@ -13,6 +13,19 @@ function loadLayout() {
   try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}') } catch { return {} }
 }
 
+function RobotSelect() {
+  const config = useStore((s) => s.config)
+  const active = useStore((s) => s.activeRobotId)
+  const setRobot = useStore((s) => s.setRobot)
+  if (!config) return null
+  return (
+    <select className="!w-auto text-[11px] ml-2" value={active || config.robots[0].id}
+      onChange={(e) => setRobot(e.target.value)} title="活动机器人">
+      {config.robots.map((r) => <option key={r.id} value={r.id}>{r.id}</option>)}
+    </select>
+  )
+}
+
 export default function App() {
   const init = useStore((s) => s.init)
   const error = useStore((s) => s.error)
@@ -60,6 +73,7 @@ export default function App() {
         <button className={cn('px-2 py-0.5 rounded', leftOpen ? 'text-accent bg-panel' : 'text-muted')} onClick={() => setLeftOpen(!leftOpen)}>场景树</button>
         <button className={cn('px-2 py-0.5 rounded', rightOpen ? 'text-accent bg-panel' : 'text-muted')} onClick={() => setRightOpen(!rightOpen)}>属性</button>
         <button className={cn('px-2 py-0.5 rounded', dockOpen ? 'text-accent bg-panel' : 'text-muted')} onClick={() => setDockOpen(!dockOpen)}>停靠区</button>
+        <RobotSelect />
         <span className="ml-auto text-[10px] text-muted">三维主视图 · 拖拽边缘调整面板</span>
       </div>
       <div className="flex-1 flex min-h-0 min-w-0">

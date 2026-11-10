@@ -1,4 +1,4 @@
-import { useStore } from '../store'
+import { useStore, activeRobot } from '../store'
 import { cn } from './ui'
 import type { Selection } from '../types'
 
@@ -20,8 +20,8 @@ function Item({ label, sel, depth = 0, tag }:
 
 export default function TreePanel() {
   const config = useStore((s) => s.config)
-  if (!config) return <div className="p-3 text-xs text-muted">加载配置中…</div>
-  const robot = config.robots[0]
+  const robot = useStore(activeRobot)
+  if (!config || !robot) return <div className="p-3 text-xs text-muted">加载配置中…</div>
   const jointByChild = Object.fromEntries(robot.joints.map((j) => [j.child, j]))
   return (
     <div className="p-2 overflow-y-auto h-full">

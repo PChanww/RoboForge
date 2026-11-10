@@ -23,8 +23,10 @@ export const api = {
     req<ProjectConfig>('PUT', `/api/v1/config?project=${project}`, cfg),
   validateConfig: (cfg: ProjectConfig) =>
     req<{ valid: boolean; issues: string[] }>('POST', '/api/v1/config/validate', cfg),
-  createSession: (project = 'default') =>
-    req<{ id: string; epoch: number; observation: Observation }>('POST', '/api/v1/sessions', { project }),
+  createSession: (project = 'default', robot_id?: string, controller_id?: string) =>
+    req<{ id: string; epoch: number; observation: Observation }>('POST', '/api/v1/sessions', { project, robot_id, controller_id }),
+  compat: (robot_id?: string, model = 'state') =>
+    req<{ compatible: boolean; mismatches: string[]; robot: string }>('GET', `/api/v1/compat?model=${model}${robot_id ? `&robot_id=${robot_id}` : ''}`),
   reset: (sid: string, seed?: number) =>
     req<{ observation: Observation; epoch: number }>('POST', `/api/v1/sessions/${sid}/reset`, { seed }),
   observation: (sid: string) => req<Observation>('GET', `/api/v1/sessions/${sid}/observation`),

@@ -39,17 +39,29 @@ class AuxModel:
                         "joints": [{"name": "str", "child": "str", "type": "revolute|prismatic|fixed",
                                     "axis": "[x,y,z]", "range": "[lo,hi]", "origin": "[x,y,z]"}],
                         "assumptions": ["str"], "units": "m/rad", "needs_confirmation": ["field"]}}
-        # Real call when configured (kept minimal; no key is stored in code).
+        # Real call when configured; text + optional images, structured JSON out.
         import urllib.request
+        content = [{"type": "text", "text": prompt}]
+        for v in (views or []):
+            url = v if v.startswith(("http://", "https://", "data:")) else f"data:image/png;base64,{v}"
+            content.append({"type": "image_url", "image_url": {"url": url}})
         body = json.dumps({"model": self.model, "messages": [
-            {"role": "system", "content": "Return JSON candidate robot structure with units, assumptions, "
-                                          "needs_confirmation."},
-            {"role": "user", "content": prompt}]}).encode()
+            {"role": "system", "content": "Return ONLY JSON candidate robot structure with fields "
+                                          "links/joints/assumptions/units/needs_confirmation."},
+            {"role": "user", "content": content}]}).encode()
         req = urllib.request.Request(f"{self.base_url.rstrip('/')}/chat/completions", data=body,
                                      headers={"Content-Type": "application/json",
                                               "Authorization": f"Bearer {self.api_key}"})
         with urllib.request.urlopen(req, timeout=60) as resp:
-            return json.loads(resp.read())
+            raw = json.loads(resp.read())
+        text = raw.get("choices", [{}])[0].get("message", {}).get("content", "")
+        try:
+            candidate = json.loads(text[text.index("{"):text.rindex("}") + 1])
+        except (ValueError, KeyError):
+            return {"status": "unparsed", "raw": text, "hint": "model did not return JSON; use structured import"}
+        return {"status": "candidate", "candidate": candidate,
+                "assumptions": candidate.get("assumptions", []),
+                "needs_confirmation": candidate.get("needs_confirmation", [])}
 
 
 def validate_suggestion(suggestion: dict, base_config: ProjectConfig, lab_root: Path):

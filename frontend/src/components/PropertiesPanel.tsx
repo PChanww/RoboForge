@@ -1,15 +1,15 @@
-import { useStore } from '../store'
+import { useStore, activeRobot } from '../store'
 import { Field, NumberInput, Vec3Input, Section, Slider } from './ui'
 
 function JointEditor({ id }: { id: string }) {
   const config = useStore((s) => s.config)!
   const edit = useStore((s) => s.edit)
   const obs = useStore((s) => s.observation)
-  const robot = config.robots[0]
+  const robot = useStore(activeRobot)!
   const j = robot.joints.find((x) => x.name === id)!
   const live = obs?.state.joint_pos[id]
   const upd = (patch: Partial<typeof j>) =>
-    edit((c) => { Object.assign(c.robots[0].joints.find((x) => x.name === id)!, patch) })
+    edit((c) => { Object.assign(c.robots.find((r) => r.id === robot.id)!.joints.find((x) => x.name === id)!, patch) })
   return (
     <div>
       <Section title={`关节 · ${j.name}`}>
@@ -50,10 +50,10 @@ function JointEditor({ id }: { id: string }) {
 function LinkEditor({ id }: { id: string }) {
   const config = useStore((s) => s.config)!
   const edit = useStore((s) => s.edit)
-  const robot = config.robots[0]
+  const robot = useStore(activeRobot)!
   const l = robot.links.find((x) => x.name === id)!
   const mass = l.collisions.reduce((a, g) => a + g.mass_kg, 0)
-  const upd = (patch: any) => edit((c) => { Object.assign(c.robots[0].links.find((x) => x.name === id)!, patch) })
+  const upd = (patch: any) => edit((c) => { Object.assign(c.robots.find((r) => r.id === robot.id)!.links.find((x) => x.name === id)!, patch) })
   return (
     <Section title={`连杆 · ${l.name}`}>
       <Field label="原点 (父坐标系, m)"><Vec3Input value={l.origin} onChange={(v) => upd({ origin: v })} /></Field>
@@ -62,7 +62,7 @@ function LinkEditor({ id }: { id: string }) {
       {l.collisions.map((g, i) => (
         <Field key={i} label={`碰撞体 ${i} 质量 (kg)`}>
           <NumberInput value={g.mass_kg} onChange={(v) =>
-            edit((c) => { c.robots[0].links.find((x) => x.name === id)!.collisions[i].mass_kg = v })} />
+            edit((c) => { c.robots.find((r) => r.id === robot.id)!.links.find((x) => x.name === id)!.collisions[i].mass_kg = v })} />
         </Field>
       ))}
       <label className="flex items-center gap-2 text-xs text-muted">
@@ -79,7 +79,8 @@ function SensorEditor({ id }: { id: string }) {
   const edit = useStore((s) => s.edit)
   const obs = useStore((s) => s.observation)
   const s = config.sensors.find((x) => x.id === id)!
-  const bodies = ['world', ...config.robots[0].links.map((l) => l.name)]
+  const robot = useStore(activeRobot)!
+  const bodies = ['world', ...robot.links.map((l) => l.name)]
   const upd = (patch: any) => edit((c) => { Object.assign(c.sensors.find((x) => x.id === id)!, patch) })
   const updK = (patch: any) => edit((c) => { Object.assign(c.sensors.find((x) => x.id === id)!.intrinsics, patch) })
   const age = obs?.timing.image_age_s[id]

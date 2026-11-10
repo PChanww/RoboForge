@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-KINDS = {"collect", "train", "eval", "export", "convert", "checks"}
+KINDS = {"collect", "train", "train_visual", "eval", "eval_visual", "export", "convert", "checks"}
 
 
 def _now():
@@ -73,6 +73,26 @@ class JobManager:
             return args, lab
         if kind == "export":
             return [sys.executable, "scripts/export_deploy.py"], lab
+        if kind == "eval_visual":
+            distro = os.environ.get("VLAB_WSL_DISTRO", "Ubuntu-22.04")
+            linux_lab = os.environ.get("VLAB_LINUX_LAB", "/mnt/c/Users/31295/Documents/Codex/2026-11-09/"
+                                                          "https-www-aholo3d-cn-hackathon-utm/outputs/vla-lab")
+            deps = os.environ.get("VLAB_LINUX_DEPS", "/mnt/c/Users/31295/Documents/Codex/2026-11-09/"
+                                                    "https-www-aholo3d-cn-hackathon-utm/work/policy/deps")
+            py = os.environ.get("VLAB_LINUX_PYTHON", "~/miniconda3/envs/voxcpm/bin/python")
+            inner = (f"cd {linux_lab}/scripts && no_proxy=127.0.0.1,localhost NO_PROXY=127.0.0.1,localhost "
+                     f"PYTHONPATH={deps}:. HF_HUB_OFFLINE=1 {py} eval_image_policy.py --lab {linux_lab}")
+            return ["wsl", "-d", distro, "--", "bash", "-lc", inner], lab
+        if kind == "train_visual":
+            distro = os.environ.get("VLAB_WSL_DISTRO", "Ubuntu-22.04")
+            linux_lab = os.environ.get("VLAB_LINUX_LAB", "/mnt/c/Users/31295/Documents/Codex/2026-11-09/"
+                                                          "https-www-aholo3d-cn-hackathon-utm/outputs/vla-lab")
+            deps = os.environ.get("VLAB_LINUX_DEPS", "/mnt/c/Users/31295/Documents/Codex/2026-11-09/"
+                                                    "https-www-aholo3d-cn-hackathon-utm/work/policy/deps")
+            py = os.environ.get("VLAB_LINUX_PYTHON", "~/miniconda3/envs/voxcpm/bin/python")
+            inner = (f"cd {linux_lab}/scripts && PYTHONPATH={deps}:. HF_HUB_OFFLINE=1 {py} "
+                     f"train_image_bc.py --lab {linux_lab}")
+            return ["wsl", "-d", distro, "--", "bash", "-lc", inner], lab
         if kind in ("convert", "checks"):
             distro = os.environ.get("VLAB_WSL_DISTRO", "Ubuntu-22.04")
             linux_lab = os.environ.get("VLAB_LINUX_LAB", "/mnt/c/Users/31295/Documents/Codex/2026-11-09/"

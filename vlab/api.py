@@ -60,6 +60,16 @@ class JobBody(BaseModel):
     params: dict = {}
 
 
+class ImportBody(BaseModel):
+    filename: str
+    data_b64: str
+    slug: str
+    height_m: float = 0.09
+    mass_kg: float = 0.12
+    radius_m: float | None = None
+    up: str = "y"
+
+
 def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     app = FastAPI(title="VLA Lab Platform", version=SCHEMA_VERSION)
     store = ConfigStore(lab_root / "projects")
@@ -411,6 +421,22 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
                     out.append({"id": d.name, "package_id": m.get("package_id"),
                                 "robot": m.get("robot"), "created": m.get("created_utc")})
         return {"deployments": out}
+
+    @app.get("/api/v1/compat")
+    def compat_check(robot_id: str | None = None, model: str = "state"):
+        from .compat import check_contract
+        cfg = store.load("default")
+        base = {"joint_names": ["waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"],
+                "action_mode": "cartesian_delta_ik", "action_dim": 4,
+                "action_names": ["dx", "dy", "dz", "grip"], "fps": 20.0,
+                "camera_keys": ["front", "wrist"], "privileged": False}
+        if model == "priv":
+            base["privileged"] = True
+        elif model == "visual":
+            base["camera_keys"] = ["front"]
+        elif model != "state":
+            raise HTTPException(400, "model must be state|priv|visual")
+        return check_contract(base, cfg, robot_id)
 
     @app.get("/api/v1/generation-jobs")
     def generation_status():

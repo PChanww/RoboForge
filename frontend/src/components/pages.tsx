@@ -168,6 +168,7 @@ export function TrainingPage() {
       <div className="flex gap-2 mb-3">
         <Button onClick={() => start(false)}>训练状态 BC</Button>
         <Button variant="outline" onClick={() => start(true)}>训练特权 BC</Button>
+        <Button variant="outline" onClick={() => api.createJob('train_visual').then(reload)}>训练视觉 BC</Button>
       </div>
       <div className="text-xs text-muted mb-3">训练在独立后台进程（WSL 学习环境的 PyTorch）运行，与 Web 请求生命周期解耦；产物写入 datasets/models 与 reports。</div>
       <JobsTable filter="train" />
@@ -200,9 +201,38 @@ export function EvaluationsPage() {
       <div className="flex gap-2 mb-3">
         <Button onClick={() => start(false)}>评测状态 BC</Button>
         <Button variant="outline" onClick={() => start(true)}>评测特权 BC</Button>
+        <Button variant="outline" onClick={() => api.createJob('eval_visual').then(reload)}>评测视觉 BC</Button>
       </div>
       <div className="text-xs text-muted mb-3">独立 rollout，按训练内/留出摆位/留出资产分组报告；结果写入 datasets/reports/eval_policy.json / eval_priv.json。特权成绩标明特权观测。</div>
       <JobsTable filter="eval" />
+    </div>
+  )
+}
+
+function CompatChecker() {
+  const [robot, setRobot] = useState('lux3d_5r')
+  const [model, setModel] = useState('state')
+  const [res, setRes] = useState<any>(null)
+  return (
+    <div className="border border-edge rounded p-3 bg-panel2 mt-3">
+      <div className="text-xs text-accent mb-2">模型 / 机器人兼容性检查</div>
+      <div className="flex gap-2 items-center text-xs">
+        <select className="!w-auto" value={model} onChange={(e) => setModel(e.target.value)}>
+          <option value="state">状态 BC</option><option value="priv">特权 BC</option><option value="visual">视觉 BC</option>
+        </select>
+        <select className="!w-auto" value={robot} onChange={(e) => setRobot(e.target.value)}>
+          <option value="lux3d_5r">lux3d_5r</option><option value="cartesian_3dof">cartesian_3dof</option>
+        </select>
+        <Button size="sm" onClick={() => api.compat(robot, model).then(setRes)}>检查</Button>
+      </div>
+      {res && (
+        <div className="text-xs mt-2">
+          <span className={res.compatible ? 'text-accent' : 'text-red-400'}>
+            {res.compatible ? '兼容，可运行' : '不兼容，阻止运行'}
+          </span>
+          <ul className="text-muted list-disc pl-4 mt-1">{res.mismatches?.map((m: string, i: number) => <li key={i}>{m}</li>)}</ul>
+        </div>
+      )}
     </div>
   )
 }
@@ -213,6 +243,7 @@ export function DeploymentsPage() {
     <div className="p-4">
       <h2 className="text-lg text-ink mb-2">部署中心</h2>
       <Button onClick={() => api.createJob('export').then(reload)}>构建部署包</Button>
+      <CompatChecker />
       <div className="grid grid-cols-2 gap-3 mt-3">
         {(data?.deployments || []).map((d) => (
           <div key={d.id} className="border border-edge rounded p-3 bg-panel2">
