@@ -1,132 +1,198 @@
-# RoboForge · 可配置机器人仿真与学习平台
+# RoboForge
 
-在三维交互界面中，从提示词生成或导入机器人与场景资产，配置关节、物理参数、相机和控制器，快速验证不同机器人设计与控制方法；并支持数据采集、模型训练与评测，以及可迁移部署包导出。物理后端为 MuJoCo，前端为 React + React Three Fiber，训练与数据格式对接 LeRobot / PyTorch。
+**English** | [简体中文](README.zh-CN.md)
 
-**核心用户流程**
+A configurable robotics simulation and learning workbench. Generate or import 3D assets, configure robot joints, physics, cameras, and controllers, then collect demonstrations, evaluate policies, train baselines, and export deployment artifacts.
 
-> 提示词生成资产 → 绑定关节与传感器 → 插入控制器 → 运行任务 → 采数据 / 训练 → 评测 / 导出
+> Generate assets → configure joints and sensors → connect a controller → run a task → collect data / train → evaluate / export
 
-## 主要能力
+RoboForge currently uses MuJoCo for physics and a React + React Three Fiber editor. Dataset conversion and learning scripts integrate with LeRobot and PyTorch.
 
-- **配置驱动**：带 `schema_version` 的持久化项目配置（场景 / 机器人连杆树 / 关节 / 执行器 / 传感器 / 控制器 / 任务 / 策略）。编辑产生新版本，在明确的重置或重载边界应用；候选配置与已验证配置分开保存，参数可记录来源。
-- **多机器人**：首批为 Lux3D 生成的五旋转关节固定基座机械臂，另含 3 自由度直角坐标龙门验证扩展性。接口按名称与配置维数寻址，代码无固定五/七关节长度假设。
-- **多频率调度**：物理步长、底层控制周期、相机采样周期、策略周期独立配置，由仿真时钟驱动；记录每个观测的 capture/available 时间、图像年龄、丢帧与实际采样间隔，支持非整数周期比。
-- **相机**：可固定在世界或挂载在连杆上；分辨率、针孔内参、帧率、延迟可配；网页自由观察相机与模型传感器相机分离，三维网格位置来自后端权威物理状态。
-- **控制器与模型**：`joint_position` 与 `cartesian_delta_ik` 两种模式并声明动作契约；Python 控制器插件协议；外部策略经 HTTP / WebSocket 完成观测-动作循环；每会话独立环境、单一控制权，冲突返回可理解的 409。
-- **数据与训练**：LeRobot v3 数据集（多相机 + 状态 + 动作 + 语言指令 + 时间戳 + episode 边界 + 结果），数据检查与图像/状态/动作对齐回放；PyTorch 行为克隆训练、checkpoint 保存/重载、留出 episode 评测。
-- **部署**：自包含部署包（配置快照 + 资产 + 权重 + 观测/动作契约 + 独立载入示例），在干净进程复建并运行；MJCF 导出并报告坐标/碰撞/传感器/执行器转换情况。
+## Current capabilities
 
-## 已验证结果（真实物理判定，非脚本自评）
+- **Versioned projects.** Persist robot link trees, joints, actuators, cameras, controllers, and tasks with a `schema_version`. Saving creates a configuration revision that is applied when a session is rebuilt.
+- **Two robot configurations.** A Lux3D-generated, fixed-base arm with five revolute joints, plus a Cartesian gantry configuration for exercising a different embodiment.
+- **Interactive editing.** Select objects in the scene tree, edit joint/link/camera/task properties, save and apply changes, and inspect backend-authoritative body poses.
+- **Configurable sensors and timing.** World-mounted and link-mounted cameras with configurable pinhole intrinsics, resolution, frame rate, and delay. Physics, control, camera capture, and policy timing use a simulation-clock scheduler with capture/availability timestamps.
+- **Controller and policy interfaces.** `joint_position` and `cartesian_delta_ik` modes where supported, HTTP/WebSocket observation–action loops, and local Python controller plugins. Sessions have separate environments and explicit control ownership.
+- **Data and learning scripts.** Expert demonstration collection, LeRobot dataset conversion/read-back, data checks, aligned replay, state-based behavior cloning (BC), checkpoint reload, and closed-loop evaluation.
+- **Export.** Configuration/asset/weight bundles with an I/O contract and runner, plus MJCF export. The runner currently requires the project's `vlab` package and Python dependencies.
 
-| 项 | 结果 |
-| --- | --- |
-| 机械臂抓放（4 杯型 × 10 种子，脚本专家） | **40/40** 成功 |
-| 相同路径开爪阴性对照 | **0/40** |
-| 任务工作区自碰撞 / IK 运动学误差 | 0 / 0.0 mm |
-| 30 FPS 相机 @ 20 Hz 控制 | 271 帧 / 9 s，平均间隔 0.03333 s |
-| LeRobot 数据集 | 21 episode / 3297 帧，官方 loader 回读通过 |
-| 部署包独立进程复建 | 专家控制器重建场景后成功抓放 |
+The browser's inspection camera is separate from the sensor cameras used by a policy. The current UI is primarily Chinese; the documentation is available in both languages.
 
-> **诚实说明**：行为克隆策略的闭环成功率目前为 0（开环定时专家的可模仿性局限，已诊断并记录）；SmolVLA 新契约适配、微调与实机验证为待办。脚本成绩与学习策略成绩分别报告，详见各阶段报告与文末验收对照。
+Experiment results, validation evidence, and implementation limitations are documented in the [audit report](docs/AUDIT.md).
 
-## 快速开始
+## Quick start
 
-```powershell
-# 后端（端口 8767，含旧版 /api/* 兼容）
-..\..\work\venv\Scripts\python.exe -m uvicorn vlab.api:app --host 127.0.0.1 --port 8767
+Run these commands from the project directory, `vla-lab`. The prepared host uses Windows/PowerShell and Python 3.13 for simulation. The frontend requires Node.js/npm. Camera rendering requires a working OpenGL context.
 
-# 前端（端口 5173，代理 /api 与 /assets 到 8767）
-cd frontend
-npm install
-npm run dev
-```
+### Use the prepared workspace
 
-打开 <http://localhost:5173>：在场景树选择关节或相机 → 修改参数 → 「保存并应用」；「运行专家」观看真实物理抓放。另一台机器可用 Python 3.13 虚拟环境 `pip install -r requirements.txt` 后运行上述命令。
-
-## 历史版本与兼容
-
-当前机构为五旋转关节机械臂。下文的旧版接口与历史成绩（30/30、10/10）属于**三轴龙门夹爪**，仅作兼容与追溯，不适用于当前机械臂；若 8765 端口进程启动早于代码更新，需重启。旧版 `server.py`（8765）接口如下。
-
-| HTTP 接口 | 输入和结果 |
-| --- | --- |
-| GET /api/assets | 返回可选杯型。 |
-| POST /api/reset | JSON 对象包含 asset 和 seed，返回新 episode 和 tick。 |
-| GET /api/observation?images=1 | 返回前视和腕部 JPEG 的 Base64、夹爪位置（米）、开度及任务指令。 |
-| POST /api/step | 发送 episode、tick 和四维 action。前三维为归一化 XYZ 目标增量（最大每步 12 mm），末维由 −1 合爪到 +1 开爪。 |
-| GET /api/result | 返回双指接触、提起、托盘接触、放稳及物体位置等评测信息。 |
-
-每个控制步推进 0.05 秒仿真时间。服务运行一个共享场景；当其他控制器推进或重置环境，旧请求返回 HTTP 409，外部策略需重新读取观测。
-
-**已接入的参赛资产**为 `imported/lux3d-ivory`。它来自 Lux3D G1-Turbo 文生 3D 任务 5018305。[原始 GLB](assets/imported/lux3d-ivory/original.glb) 和 [来源、提示词及尺寸记录](assets/imported/lux3d-ivory/manifest.json) 均已保存。使用三轴夹爪和脚本控制时，种子 0 至 9 的十次运行全部成功。[逐次结果](evidence/lux3d-physics.json) · [种子 0 的抓放画面](evidence/lux3d-grasp.jpg)
-
-同一个 Lux3D 杯子在种子 0 上也由外部 SmolVLA 实际运行过 180 步。模型完成 36 次推理并控制夹爪移动，但在本轮中未碰到杯子。[模型动作与评分](evidence/lux3d-smolvla.json)
-
-运行 `python evaluate.py --no-video` 可复核三个程序杯型的 60 次配对试验。[对照报告](evidence/baseline-results.json) 和 [视频](evidence/baseline-comparison.mp4) 使用脚本控制。其他杯型见 [Lux3D 资产生成与导入说明](asset_pipeline/README.md)。杯身碰撞用显式半径和高度建立圆柱近似，生成网格用于视觉观测。
-
-## 可配置平台后端（阶段 B，2026-11-09）
-
-`vlab/` 是配置驱动的新后端，与旧版 `server.py` 并存。它用带 `schema_version` 的持久化配置（机器人连杆树/关节、相机内外参、控制器、任务）构建 MuJoCo 场景，按仿真时钟做多频率调度，并提供会话隔离与控制权管理。关节和动作维数都来自配置，代码无固定五/七关节长度假设。
-
-在项目目录运行（端口 8767，避开旧版 8765）：
+Start the backend in one terminal:
 
 ```powershell
 ..\..\work\venv\Scripts\python.exe -m uvicorn vlab.api:app --host 127.0.0.1 --port 8767
 ```
 
-| 接口 | 说明 |
-| --- | --- |
-| GET /api/v1/capabilities | 引擎版本、机器人、支持的控制模式、控制器/传感器/任务描述。 |
-| GET/PUT /api/v1/config | 读取/保存配置；保存先做静态+物理构建校验并递增版本号。 |
-| POST /api/v1/config/validate | 返回结构化校验问题（含 schema 与物理构建错误）。 |
-| GET /api/v1/config/versions[/{n}] | 不可变版本快照列表/读取。 |
-| POST /api/v1/sessions | 从配置快照创建独立会话（独立物理线程与环境）。 |
-| POST /api/v1/sessions/{id}/control/acquire | 获取控制权，返回 token；冲突返回 409。 |
-| POST /api/v1/sessions/{id}/action | 带 token 执行一步；错误维数/越界返回 400，过期 tick 返回 409。 |
-| POST /api/v1/sessions/{id}/action_block | 执行动作块。 |
-| GET /api/v1/sessions/{id}/observation | 版本化观测：按名称的关节状态、相机帧（capture/available_time）、时间调度统计。 |
-| GET /api/v1/sessions/{id}/result | 观测 + 任务判据（terminated/truncated 区分）。 |
-| WS /api/v1/ws/{id} | WebSocket 观测-动作循环（acquire/action/observation）。 |
-| /api/assets、/api/reset、/api/step 等 | 旧版接口原样保留。 |
-
-Gymnasium 封装见 `vlab/gym_env.py`（`VLabGymEnv`，区分 terminated 与 truncated）。验收测试：`python tests/test_engine.py`、`python tests/test_api.py`。详见 [阶段 B 报告](experiments/20261109-platform-core/REPORT.md)。
-
-## 三维编辑器前端（阶段 C，2026-11-09）
-
-`frontend/` 是 React + TypeScript + Vite + React Three Fiber 的中文编辑器：左侧场景树、中间三维场景（网格按后端权威 body 位姿放置）+ 实时相机画面、右侧关节/连杆/相机/任务属性编辑、底部日志/时间调度/曲线。编辑保存后递增配置版本并在重载会话时应用。
-
-先启动上面的后端（8767），再在项目目录运行：
+Start the frontend in another terminal:
 
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-打开 <http://localhost:5173>（Vite 将 `/api` 与 `/assets` 代理到 8767）。选择关节或相机→修改参数→「保存并应用」；「运行专家」可观看脚本抓放。详见 [阶段 C 报告](experiments/20261109-frontend/REPORT.md)。
+Open [http://localhost:5173](http://localhost:5173). Vite proxies `/api` and `/assets` to the backend on port 8767.
 
-## 数据、训练与部署（阶段 D/E，2026-11-10）
+Select a joint or camera in the scene tree, change its properties, and click **保存并应用** (Save and apply). Click **运行专家** (Run expert) to run the scripted controller.
 
-- **数据采集/LeRobot**：`scripts/collect_expert.py` 采集 21 个专家 episode（3297 帧，双相机+状态+动作+语言指令+成功标签）；`scripts/lerobot_writer.py` 用官方 lerobot 0.4.4 写出并回读校验；`scripts/data_checks.py` 检查时间戳/范围/图像/动作-位移对齐（余弦 0.911）；`scripts/replay_episode.py` 生成对齐回放 MP4。详见 [阶段 D 报告](experiments/20261110-data-training/REPORT.md)。
-- **训练闭环**：`scripts/train_bc.py`（WSL torch）真实训练 BC MLP、保存 checkpoint、重载验证（0 误差）、导出 numpy 权重；`scripts/eval_policy.py` 在与训练分开的 episode/摆位上闭环评测。诚实结果：模仿策略闭环成功率 0（原因与下一步见报告）。
-- **部署包**：`scripts/export_deploy.py` 导出 `deploy/lux3d_5r-v4/`（配置快照+资产+权重+契约+run.py），独立进程复建并运行（专家成功、策略运行记录）。详见 [阶段 E 报告](experiments/20261110-deploy-export/REPORT.md)。
-- **第二种机器人**：`configs/second_robot.json`（3 自由度直角坐标龙门）经通用接口描述并运行，验证无固定关节数假设。
-- **辅助模型/插件/导出**：`vlab/aux_model.py`（无凭据时等待配置，结构化导入校验）、`vlab/plugins.py`（控制器插件协议+示例）、`scripts/export_mjcf.py`（MJCF 导出）。
+### Set up a new simulation environment
 
-## 验收对照（12 项）
+From `vla-lab`, create and activate a Python 3.13 environment:
 
-| # | 验收项 | 状态 | 证据 |
-| --- | --- | --- | --- |
-| 1 | 机械臂真实抓放 + 阴性对照 | ✅ 40/40，开爪 0/40 | [A 报告](experiments/20261109-arm-audit/REPORT.md) |
-| 2 | 修改关节参数+相机外参，保存/重开/确认 | ✅ v2→v5 生效 | [C 报告](experiments/20261109-frontend/REPORT.md) |
-| 3 | 30FPS/20Hz 多周期按仿真时间运行 | ✅ 271 帧/9s，间隔 0.03333s | `tests/test_engine.py` |
-| 4 | 外部控制器/模型客户端观测-动作循环 | ✅ HTTP+WS+插件 | `tests/test_api.py`、`datasets/reports/aux_plugin.json` |
-| 5 | 过期动作/错误维数/控制权冲突 | ✅ 409/400 | `tests/test_api.py` |
-| 6 | 采集并回读数据集、回放对齐 | ✅ 21 集/3297 帧 | [D 报告](experiments/20261110-data-training/REPORT.md)、`datasets/replay/` |
-| 7 | 策略训练/保存/重载/独立评测 | ✅ 管线真实；闭环 0/11（已诊断） | `datasets/reports/train_bc.json`、`eval_policy.json` |
-| 8 | VLA 与微调分别记录、成绩分开报告 | ◐ 脚本 40/40；学习 0/11；VLA 待适配 | D 报告 |
-| 9 | 部署包独立进程复建运行 | ✅ 专家成功 | `datasets/reports/deploy_check.json` |
-| 10 | 新终端按文档启动全流程 | ✅ README 命令 | 本文件 |
-| 11 | 两类机器人通用描述，无固定关节长度 | ✅ 5R + 3DOF 龙门 | `datasets/reports/second_robot.json` |
-| 12 | 已完成有入口/未通过说明原因 | ✅ 见各报告"未解决限制" | experiments/ |
+```powershell
+py -3.13 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m uvicorn vlab.api:app --host 127.0.0.1 --port 8767
+```
 
-**未解决限制**：BC 闭环成功率 0（定时专家可模仿性差）；SmolVLA 新契约待适配、微调与实机未验证；URDF/USD/Isaac/ROS/ONNX 待适配；远程插件进程隔离未启用；实时墙钟 pacing 未实现。
+Then start the frontend as above. If you change the backend port, update `frontend/vite.config.ts`.
+
+The core requirements cover simulation, the API, and API tests. LeRobot/PyTorch training, asset generation, and MP4 replay have additional requirements described below.
+
+## Project layout
+
+```text
+vlab/                Configuration-driven engine, API, sessions, scheduler, Gymnasium wrapper
+frontend/            React, TypeScript, Vite, React Three Fiber editor
+configs/             Default project and second-robot configuration
+projects/            Persisted project revisions
+assets/              Robot meshes, generated objects, and provenance
+asset_pipeline/      Aholo generation, GLB/ZIP import, and arm mesh binding
+plugins/             Example local controller plugin
+scripts/             Collection, conversion, training, evaluation, and export tools
+tests/               Engine and API checks
+datasets/            Local staging data, model weights, replay, and reports
+deploy/              Generated deployment bundles and MJCF
+experiments/         Dated experiment reports and validation evidence
+integrations/        Historical SmolVLA client and runtime instructions
+sim_env.py, arm.py    Arm/task implementation used by the original prototype
+server.py            Legacy HTTP server, default port 8765
+index.html           Legacy frontend
+evidence/            Historical gantry experiment artifacts
+```
+
+Generated datasets and deployment bundles may be absent from a fresh checkout. See `.gitignore` and regenerate them with the scripts when needed.
+
+## Platform API
+
+The current backend runs on port **8767**. Interactive endpoint schemas are available at [http://127.0.0.1:8767/docs](http://127.0.0.1:8767/docs) after startup.
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/v1/capabilities` | Engine version, robot capabilities, and supported controller/sensor/task descriptions |
+| `GET /api/v1/config` | Read the current project configuration |
+| `POST /api/v1/config/validate` | Validate schema and physical construction |
+| `PUT /api/v1/config` | Validate and save a configuration revision |
+| `GET /api/v1/config/versions` | List immutable revisions |
+| `GET /api/v1/config/versions/{version}` | Read a revision |
+| `POST /api/v1/sessions` | Create an isolated environment session |
+| `POST /api/v1/sessions/{sid}/reset` | Reset a session |
+| `POST /api/v1/sessions/{sid}/control/acquire` | Acquire a control token |
+| `POST /api/v1/sessions/{sid}/control/release` | Release control |
+| `POST /api/v1/sessions/{sid}/action` | Execute one action using the token and current tick |
+| `POST /api/v1/sessions/{sid}/action_block` | Execute an action block |
+| `GET /api/v1/sessions/{sid}/observation` | Read named joint state, camera frames, and timing information |
+| `GET /api/v1/sessions/{sid}/result` | Read observations and task/termination metrics |
+| `GET /api/v1/sessions/{sid}/frame.jpg` | Read a camera frame |
+| `DELETE /api/v1/sessions/{sid}` | Close a session |
+| `WS /api/v1/ws/{sid}` | Control acquisition, actions, and observations over WebSocket |
+
+Stale actions and conflicting control ownership return HTTP 409. Invalid action dimensions or out-of-range values return HTTP 400. Supported action modes depend on the robot configuration.
+
+The Gymnasium interface is `VLabGymEnv` in `vlab/gym_env.py`, with separate `terminated` and `truncated` flags.
+
+## Collect, train, and evaluate
+
+Run simulation-side commands from `vla-lab` with the simulation Python environment:
+
+```powershell
+python scripts/collect_expert.py
+python scripts/replay_episode.py --episode 19
+```
+
+Collection writes the predefined 21-episode plan to `datasets/staging`. Replay requires `ffmpeg` on PATH and writes an MP4 under `datasets/replay`.
+
+Use a separate learning environment for conversion and training. The recorded WSL setup used Python 3.11, LeRobot 0.4.4, PyTorch 2.6.0+cu124, and Transformers 4.57.3. These packages are separate from the core `requirements.txt`; the scripts also use pandas and a Parquet engine such as pyarrow.
+
+Run the following from the project directory in that environment:
+
+```bash
+python scripts/lerobot_writer.py --staging datasets/staging --out datasets/lerobot/expert21
+python scripts/data_checks.py --lab .
+python scripts/train_bc.py --lab .
+python scripts/eval_policy.py --group all
+```
+
+`eval_policy.py` can also run in the simulation environment using the exported NumPy weights. Optional privileged-state diagnostics are available:
+
+```bash
+python scripts/train_priv.py --lab .
+python scripts/eval_policy.py --priv --group heldout_spawn
+```
+
+`train_bc.py` uses episodes 0–14 for training, 15–18 for held-out spawn validation, and 19–20 for held-out asset evaluation. It saves PyTorch checkpoints and NumPy weights under `datasets/models`. Existing `datasets/dagger/*.npz` files are included when present; record those inputs when comparing runs.
+
+These commands generate or update local data, checkpoints, and reports. The current BC model is a state-based MLP. SmolVLA inference instructions and the historical projection limitations are documented in [integrations/README.md](integrations/README.md).
+
+## Export and extension points
+
+```powershell
+python scripts/export_deploy.py
+python scripts/export_mjcf.py
+python scripts/test_second_robot.py
+python scripts/test_aux_plugin.py
+```
+
+Deployment export expects existing BC weights and training/evaluation reports. It writes `deploy/lux3d_5r-v4`, including configuration, assets, weights, an I/O manifest, and `run.py`, then checks expert and policy execution in fresh processes.
+
+For a manual bundle run from `vla-lab`, use a simulation Python environment and make the project package available:
+
+```powershell
+$env:VLAB_LAB = (Get-Location).Path
+python deploy/lux3d_5r-v4/run.py --controller expert --ticks 200 --report deploy/lux3d_5r-v4/manual-expert.json
+```
+
+Moving the bundle to another machine also requires the `vlab` package and compatible Python dependencies. MJCF export references mesh files by name; copy the required meshes alongside the exported model.
+
+- **Assets.** See [asset generation and import](asset_pipeline/README.md). Existing Lux3D provenance is stored in `assets/robot/source.json` and `assets/imported/lux3d-ivory/manifest.json`. API generation uses the optional Aholo SDK and `AHOLO_API_KEY`.
+- **Local controllers.** A plugin exposes `create_controller(config)` and implements `reset(obs)` and `act(obs)`. See `vlab/plugins.py` and `plugins/example_openloop.py`.
+- **Auxiliary model.** `vlab/aux_model.py` reads `AUX_MODEL_BASE_URL` and `AUX_MODEL_API_KEY`. Without them it reports `waiting_for_configuration`; structured candidate validation is available. Model selection is configured through the adapter.
+
+Keep credentials in the local environment and out of source files, browser code, logs, and screenshots.
+
+## Development checks
+
+```powershell
+python tests/test_engine.py
+python tests/test_api.py
+cd frontend
+npm run build
+```
+
+## Legacy prototype
+
+`server.py` defaults to port **8765**. The platform backend on port 8767 also provides legacy `/api/*` compatibility routes.
+
+| Route | Legacy contract |
+| --- | --- |
+| `GET /api/assets` | Available cup assets |
+| `POST /api/reset` | `asset` and `seed`; returns a new episode |
+| `GET /api/observation?images=1` | End-effector XYZ, gripper opening, instruction, and two Base64-encoded 256×256 JPEGs |
+| `POST /api/step` | `episode`, `tick`, and `action: [dx, dy, dz, grip]` |
+| `GET /api/result` | Contact, lift, placement, and task metrics |
+
+All four legacy action values are in `[-1, 1]`. Translation increments are at most 0.012 m per step, with workspace clipping. Grip −1 closes and +1 opens. Each step advances 0.05 s of simulation time. A stale episode/tick returns HTTP 409.
+
+`python evaluate.py --no-video` invokes the legacy evaluator against the current `sim_env.py`; its results depend on the checked-out implementation and should be recorded as a new run.
