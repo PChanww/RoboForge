@@ -1,0 +1,707 @@
+{
+  "schema_version": "1.0",
+  "project_id": "second_robot",
+  "version": 1,
+  "validation_status": "validated",
+  "scene": {
+    "physics_backend": "mujoco",
+    "physics_dt": 0.002,
+    "gravity": [
+      0.0,
+      0.0,
+      -9.81
+    ],
+    "seed": 0,
+    "coordinate_convention": "z_up_right_handed"
+  },
+  "robots": [
+    {
+      "id": "cartesian_3dof",
+      "root_link": "base",
+      "links": [
+        {
+          "name": "base",
+          "parent": null,
+          "origin": [
+            0.0,
+            0.205,
+            0.0
+          ],
+          "gravcomp": false,
+          "visuals": [],
+          "collisions": [
+            {
+              "name": null,
+              "type": "box",
+              "size": [
+                0.02,
+                0.02,
+                0.012
+              ],
+              "fromto": null,
+              "pos": [
+                0.0,
+                0.0,
+                0.012
+              ],
+              "mass_kg": 0.6,
+              "friction": [
+                0.95,
+                0.005,
+                0.0001
+              ],
+              "contype": 1,
+              "conaffinity": 1,
+              "rgba": [
+                0.62,
+                0.68,
+                0.7,
+                1.0
+              ],
+              "group": 0,
+              "mesh": null,
+              "solref": [
+                0.006,
+                1.0
+              ]
+            }
+          ],
+          "com": null,
+          "inertia_diag": null
+        },
+        {
+          "name": "x_slide",
+          "parent": "base",
+          "origin": [
+            0.0,
+            0.0,
+            0.12
+          ],
+          "gravcomp": true,
+          "visuals": [],
+          "collisions": [
+            {
+              "name": null,
+              "type": "box",
+              "size": [
+                0.014,
+                0.014,
+                0.014
+              ],
+              "fromto": null,
+              "pos": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "mass_kg": 0.2,
+              "friction": [
+                0.95,
+                0.005,
+                0.0001
+              ],
+              "contype": 1,
+              "conaffinity": 1,
+              "rgba": [
+                0.86,
+                0.49,
+                0.16,
+                1.0
+              ],
+              "group": 0,
+              "mesh": null,
+              "solref": [
+                0.006,
+                1.0
+              ]
+            },
+            {
+              "name": null,
+              "type": "box",
+              "size": [
+                0.004,
+                0.004,
+                0.004
+              ],
+              "fromto": null,
+              "pos": [
+                0.0,
+                0.0,
+                0.01
+              ],
+              "mass_kg": 0.0,
+              "friction": [
+                0.95,
+                0.005,
+                0.0001
+              ],
+              "contype": 1,
+              "conaffinity": 1,
+              "rgba": [
+                0.62,
+                0.68,
+                0.7,
+                1.0
+              ],
+              "group": 0,
+              "mesh": null,
+              "solref": [
+                0.006,
+                1.0
+              ]
+            }
+          ],
+          "com": null,
+          "inertia_diag": null
+        },
+        {
+          "name": "y_slide",
+          "parent": "x_slide",
+          "origin": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "gravcomp": true,
+          "visuals": [],
+          "collisions": [
+            {
+              "name": null,
+              "type": "box",
+              "size": [
+                0.012,
+                0.012,
+                0.012
+              ],
+              "fromto": null,
+              "pos": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "mass_kg": 0.15,
+              "friction": [
+                0.95,
+                0.005,
+                0.0001
+              ],
+              "contype": 1,
+              "conaffinity": 1,
+              "rgba": [
+                0.62,
+                0.68,
+                0.7,
+                1.0
+              ],
+              "group": 0,
+              "mesh": null,
+              "solref": [
+                0.006,
+                1.0
+              ]
+            }
+          ],
+          "com": null,
+          "inertia_diag": null
+        },
+        {
+          "name": "z_slide",
+          "parent": "y_slide",
+          "origin": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "gravcomp": true,
+          "visuals": [],
+          "collisions": [
+            {
+              "name": null,
+              "type": "box",
+              "size": [
+                0.01,
+                0.01,
+                0.01
+              ],
+              "fromto": null,
+              "pos": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "mass_kg": 0.12,
+              "friction": [
+                0.95,
+                0.005,
+                0.0001
+              ],
+              "contype": 1,
+              "conaffinity": 1,
+              "rgba": [
+                0.86,
+                0.49,
+                0.16,
+                1.0
+              ],
+              "group": 0,
+              "mesh": null,
+              "solref": [
+                0.006,
+                1.0
+              ]
+            }
+          ],
+          "com": null,
+          "inertia_diag": null
+        },
+        {
+          "name": "eef",
+          "parent": "z_slide",
+          "origin": [
+            0.0,
+            0.0,
+            -0.03
+          ],
+          "gravcomp": true,
+          "visuals": [],
+          "collisions": [
+            {
+              "name": null,
+              "type": "box",
+              "size": [
+                0.014,
+                0.03,
+                0.006
+              ],
+              "fromto": null,
+              "pos": [
+                0.0,
+                0.0,
+                0.006
+              ],
+              "mass_kg": 0.05,
+              "friction": [
+                0.95,
+                0.005,
+                0.0001
+              ],
+              "contype": 1,
+              "conaffinity": 1,
+              "rgba": [
+                0.13,
+                0.16,
+                0.18,
+                1.0
+              ],
+              "group": 0,
+              "mesh": null,
+              "solref": [
+                0.006,
+                1.0
+              ]
+            }
+          ],
+          "com": null,
+          "inertia_diag": null
+        },
+        {
+          "name": "left",
+          "parent": "eef",
+          "origin": [
+            0.0,
+            0.006,
+            0.0
+          ],
+          "gravcomp": false,
+          "visuals": [],
+          "collisions": [
+            {
+              "name": "left_pad",
+              "type": "box",
+              "size": [
+                0.012,
+                0.005,
+                0.018
+              ],
+              "fromto": null,
+              "pos": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "mass_kg": 0.03,
+              "friction": [
+                1.8,
+                0.005,
+                0.0001
+              ],
+              "contype": 1,
+              "conaffinity": 1,
+              "rgba": [
+                0.13,
+                0.16,
+                0.18,
+                1.0
+              ],
+              "group": 0,
+              "mesh": null,
+              "solref": [
+                0.004,
+                1.0
+              ]
+            }
+          ],
+          "com": null,
+          "inertia_diag": null
+        },
+        {
+          "name": "right",
+          "parent": "eef",
+          "origin": [
+            0.0,
+            -0.006,
+            0.0
+          ],
+          "gravcomp": false,
+          "visuals": [],
+          "collisions": [
+            {
+              "name": "right_pad",
+              "type": "box",
+              "size": [
+                0.012,
+                0.005,
+                0.018
+              ],
+              "fromto": null,
+              "pos": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "mass_kg": 0.03,
+              "friction": [
+                1.8,
+                0.005,
+                0.0001
+              ],
+              "contype": 1,
+              "conaffinity": 1,
+              "rgba": [
+                0.13,
+                0.16,
+                0.18,
+                1.0
+              ],
+              "group": 0,
+              "mesh": null,
+              "solref": [
+                0.004,
+                1.0
+              ]
+            }
+          ],
+          "com": null,
+          "inertia_diag": null
+        }
+      ],
+      "joints": [
+        {
+          "name": "x",
+          "child": "x_slide",
+          "type": "prismatic",
+          "axis": [
+            1.0,
+            0.0,
+            0.0
+          ],
+          "range": [
+            -0.3,
+            0.3
+          ],
+          "damping": 0.8,
+          "armature": 0.012,
+          "initial": 0.0
+        },
+        {
+          "name": "y",
+          "child": "y_slide",
+          "type": "prismatic",
+          "axis": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "range": [
+            -0.32,
+            0.2
+          ],
+          "damping": 0.8,
+          "armature": 0.012,
+          "initial": 0.0
+        },
+        {
+          "name": "z",
+          "child": "z_slide",
+          "type": "prismatic",
+          "axis": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "range": [
+            -0.12,
+            0.06
+          ],
+          "damping": 0.8,
+          "armature": 0.012,
+          "initial": 0.0
+        },
+        {
+          "name": "eef_fixed",
+          "child": "eef",
+          "type": "fixed",
+          "axis": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "range": null,
+          "damping": 0.8,
+          "armature": 0.012,
+          "initial": 0.0
+        },
+        {
+          "name": "left",
+          "child": "left",
+          "type": "prismatic",
+          "axis": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "range": [
+            0.0,
+            0.065
+          ],
+          "damping": 4.0,
+          "armature": 0.0,
+          "initial": 0.0
+        },
+        {
+          "name": "right",
+          "child": "right",
+          "type": "prismatic",
+          "axis": [
+            0.0,
+            -1.0,
+            0.0
+          ],
+          "range": [
+            0.0,
+            0.065
+          ],
+          "damping": 4.0,
+          "armature": 0.0,
+          "initial": 0.0
+        }
+      ],
+      "actuators": [
+        {
+          "joint": "x",
+          "kind": "position",
+          "kp": 300.0,
+          "kv": 15.0,
+          "force_limit": 50.0
+        },
+        {
+          "joint": "y",
+          "kind": "position",
+          "kp": 300.0,
+          "kv": 15.0,
+          "force_limit": 50.0
+        },
+        {
+          "joint": "z",
+          "kind": "position",
+          "kp": 300.0,
+          "kv": 15.0,
+          "force_limit": 50.0
+        },
+        {
+          "joint": "left",
+          "kind": "position",
+          "kp": 350.0,
+          "kv": 4.0,
+          "force_limit": 9.0
+        },
+        {
+          "joint": "right",
+          "kind": "position",
+          "kp": 350.0,
+          "kv": 4.0,
+          "force_limit": 9.0
+        }
+      ],
+      "end_effector": "eef",
+      "tool_offset_m": 0.03,
+      "gripper": {
+        "left_joint": "left",
+        "right_joint": "right",
+        "open_m": 0.058,
+        "closed_m": 0.006,
+        "pad_geoms": [
+          "left_pad",
+          "right_pad"
+        ]
+      },
+      "reference_pose": {},
+      "mesh_dir": "assets/robot"
+    }
+  ],
+  "sensors": [
+    {
+      "id": "front",
+      "type": "rgb_camera",
+      "parent": "world",
+      "position": [
+        0.36,
+        -0.7,
+        0.46
+      ],
+      "xyaxes": [
+        0.895,
+        0.445,
+        0.0,
+        -0.16,
+        0.32,
+        0.93
+      ],
+      "intrinsics": {
+        "fx": 351.6771096901917,
+        "fy": 351.6771096901917,
+        "cx": 128.0,
+        "cy": 128.0
+      },
+      "resolution": [
+        256,
+        256
+      ],
+      "fps": 15.0,
+      "latency_s": 0.0,
+      "noise_std": 0.0
+    },
+    {
+      "id": "wrist",
+      "type": "rgb_camera",
+      "parent": "eef",
+      "position": [
+        0.05,
+        0.0,
+        0.04
+      ],
+      "xyaxes": [
+        0.0,
+        1.0,
+        0.0,
+        -1.0,
+        0.0,
+        0.9
+      ],
+      "intrinsics": {
+        "fx": 152.54445985205888,
+        "fy": 152.54445985205888,
+        "cx": 128.0,
+        "cy": 128.0
+      },
+      "resolution": [
+        256,
+        256
+      ],
+      "fps": 15.0,
+      "latency_s": 0.0,
+      "noise_std": 0.0
+    }
+  ],
+  "controllers": [
+    {
+      "id": "joints",
+      "mode": "joint_position",
+      "action_names": [
+        "x",
+        "y",
+        "z",
+        "gripper"
+      ],
+      "action_dim": 4,
+      "units": [
+        "m",
+        "m",
+        "m",
+        "m"
+      ],
+      "frame": "joint",
+      "absolute": true,
+      "action_range": [
+        [
+          -0.3,
+          0.3
+        ],
+        [
+          -0.32,
+          0.2
+        ],
+        [
+          -0.12,
+          0.06
+        ],
+        [
+          0.006,
+          0.058
+        ]
+      ],
+      "frequency_hz": 20.0,
+      "max_delta_m": null,
+      "workspace_min": [
+        -0.28,
+        -0.17,
+        0.022
+      ],
+      "workspace_max": [
+        0.28,
+        0.17,
+        0.184
+      ],
+      "task_space_note": "",
+      "required_observations": [
+        "state"
+      ]
+    }
+  ],
+  "task": {
+    "id": "cup_pick_place",
+    "plugin": "cup_pick_place",
+    "asset": "standard",
+    "goal_xy": [
+      0.133,
+      0.05
+    ],
+    "goal_surface_m": 0.009,
+    "time_limit_s": 9.0,
+    "lift_threshold_m": 0.031,
+    "stable_ticks": 6,
+    "spawn_min": [
+      -0.154,
+      -0.081
+    ],
+    "spawn_max": [
+      -0.085,
+      -0.026
+    ],
+    "instruction": "Place the cup in the tray."
+  },
+  "policies": [],
+  "provenance": {
+    "robot.links": "synthetic cartesian gantry"
+  }
+}

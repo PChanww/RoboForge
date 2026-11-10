@@ -49,8 +49,9 @@ def main():
     if any(not ((s == (3, 256, 256)) or (s == (256, 256, 3))) for s in img_shapes.values()):
         issues.append(f"unexpected image shapes {img_shapes}")
 
-    # Alignment from staging: image capture time must not be in the future.
-    ages, intervals = [], []
+    # Alignment from staging: image capture time must not be in the future,
+    # and the commanded translation must correlate with actual eef displacement.
+    ages, intervals, cosines = [], [], []
     for row in manifest["episodes"]:
         z = np.load(lab / "datasets" / "staging" / "episodes" / f"ep{row['index']:03d}.npz", allow_pickle=True)
         ft = z["frame_time"]
@@ -58,6 +59,13 @@ def main():
             ct = z[f"capture_time_{cam}"]
             ages.extend((ft - ct).tolist())
             intervals.extend(np.diff(ct).tolist())
+        disp = np.diff(z["eef_pos"], axis=0)
+        act = z["action"][:-1, :3]
+        mask = np.linalg.norm(disp, axis=1) > 1e-3
+        if mask.any():
+            cos = (disp[mask] * act[mask]).sum(1) / (
+                np.linalg.norm(disp[mask], axis=1) * np.linalg.norm(act[mask], axis=1) + 1e-9)
+            cosines.extend(cos.tolist())
         per_episode.append({"index": row["index"], "asset": row["asset"], "seed": row["seed"],
                             "frames": int(len(ft)), "success": bool(row["success"]),
                             "duration_s": float(ft[-1]),
@@ -66,6 +74,9 @@ def main():
     intervals = np.asarray(intervals)
     if (ages < -1e-6).any():
         issues.append(f"{int((ages < -1e-6).sum())} image samples have negative age (future frames)")
+    cos_mean = float(np.mean(cosines)) if cosines else None
+    if cos_mean is not None and cos_mean < 0.5:
+        issues.append(f"action direction vs eef displacement cosine {cos_mean:.2f} < 0.5 (misaligned)")
     report = {
         "dataset": {"episodes": ds.num_episodes, "frames": ds.num_frames, "fps": ds.fps,
                     "image_keys": list(ds.meta.image_keys), "video_keys": list(ds.meta.video_keys),
@@ -79,6 +90,7 @@ def main():
             "camera_period_s": {"mean": round(float(intervals.mean()), 4),
                                 "min": round(float(intervals.min()), 4),
                                 "max": round(float(intervals.max()), 4)},
+            "action_state_direction_cosine": round(cos_mean, 3) if cos_mean is not None else None,
         },
         "episodes": per_episode,
     }

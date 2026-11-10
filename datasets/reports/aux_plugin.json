@@ -1,0 +1,28 @@
+{
+ "aux_model_status": {
+  "configured": false,
+  "base_url": null,
+  "model": "gpt-4o-mini",
+  "api_key_env": "AUX_MODEL_API_KEY",
+  "state": "waiting_for_configuration"
+ },
+ "aux_waiting_response": "waiting_for_configuration",
+ "structured_import": {
+  "valid": true,
+  "issues": [],
+  "candidate_sha256": "0d5d62b4c8d293d9b4b11cd46f7fcc6ae67be195f7f18a81d2e53c16c1ef80b1",
+  "applied_fields": [
+   "notes",
+   "robots"
+  ],
+  "note": "candidate built in a throwaway env; user must apply/revert field by field"
+ },
+ "plugin": {
+  "path": "C:\\Users\\31295\\Documents\\Codex\\2026-11-09\\https-www-aholo3d-cn-hackathon-utm\\outputs\\vla-lab\\plugins\\example_openloop.py",
+  "sha256": "5cc09e4237aa84c87b1bfc3afa573e141fb95dc57f3a0944944920ea7f4e3ad6",
+  "loop": {
+   "success": false,
+   "tick": 40
+  }
+ }
+}

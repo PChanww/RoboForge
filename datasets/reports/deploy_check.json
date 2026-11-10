@@ -1,0 +1,35 @@
+{
+ "package": "default-v1-20261110001038",
+ "weights_sha256": "bae8310490ed2b208294c3815dc98a8b2f629f446dc791bc3086efef785f3520",
+ "independent_process": {
+  "expert": {
+   "returncode": 0,
+   "stdout": "{\"controller\": \"expert\", \"success\": true, \"lifted\": true, \"grasped\": true, \"tick\": 157, \"config_version\": 1, \"package\": \"default-v1-20261110001038\"}",
+   "stderr": "",
+   "result": {
+    "controller": "expert",
+    "success": true,
+    "lifted": true,
+    "grasped": true,
+    "tick": 157,
+    "config_version": 1,
+    "package": "default-v1-20261110001038"
+   }
+  },
+  "policy": {
+   "returncode": 0,
+   "stdout": "{\"controller\": \"policy\", \"success\": false, \"lifted\": false, \"grasped\": false, \"tick\": 200, \"config_version\": 1, \"package\": \"default-v1-20261110001038\"}",
+   "stderr": "",
+   "result": {
+    "controller": "policy",
+    "success": false,
+    "lifted": false,
+    "grasped": false,
+    "tick": 200,
+    "config_version": 1,
+    "package": "default-v1-20261110001038"
+   }
+  }
+ },
+ "note": "expert expected to succeed; policy is a data-limited imitation baseline"
+}

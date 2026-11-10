@@ -1,0 +1,17 @@
+{
+ "file": "deploy\\mjcf\\lux3d_5r.xml",
+ "bodies": 11,
+ "geoms": 34,
+ "joints": 8,
+ "actuators": 7,
+ "cameras": 2,
+ "meshes": 5,
+ "conversions": {
+  "coordinates": "MJCF z-up right-handed preserved as-is",
+  "collisions": "all geoms incl. contype/conaffinity, friction, solref preserved",
+  "sensors": "cameras exported with pinhole intrinsics (focalpixel/principalpixel/resolution)",
+  "actuators": "position actuators with kp/kv/forcerange preserved",
+  "gripper": "prismatic jaw joints preserved"
+ },
+ "note": "mesh files are referenced by name; copy assets/robot alongside the XML"
+}

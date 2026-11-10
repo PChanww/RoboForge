@@ -1,0 +1,231 @@
+{
+ "dataset": {
+  "episodes": 21,
+  "frames": 3297,
+  "fps": 20,
+  "image_keys": [
+   "observation.images.front",
+   "observation.images.wrist"
+  ],
+  "video_keys": [],
+  "image_shapes": {
+   "observation.images.front": [
+    3,
+    256,
+    256
+   ],
+   "observation.images.wrist": [
+    3,
+    256,
+    256
+   ]
+  }
+ },
+ "checks": {
+  "issues": [],
+  "action_range_ok": true,
+  "timestamps_monotonic": true,
+  "state_in_joint_limits": true,
+  "image_age_s": {
+   "mean": 0.0079,
+   "max": 0.016
+  },
+  "camera_period_s": {
+   "mean": 0.05,
+   "min": 0.034,
+   "max": 0.066
+  },
+  "action_state_direction_cosine": 0.911
+ },
+ "episodes": [
+  {
+   "index": 0,
+   "asset": "standard",
+   "seed": 0,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 1,
+   "asset": "standard",
+   "seed": 1,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 2,
+   "asset": "standard",
+   "seed": 2,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 3,
+   "asset": "standard",
+   "seed": 3,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 4,
+   "asset": "standard",
+   "seed": 4,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 5,
+   "asset": "tall",
+   "seed": 0,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 6,
+   "asset": "tall",
+   "seed": 1,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 7,
+   "asset": "tall",
+   "seed": 2,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 8,
+   "asset": "tall",
+   "seed": 3,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 9,
+   "asset": "tall",
+   "seed": 4,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 10,
+   "asset": "wide",
+   "seed": 0,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 11,
+   "asset": "wide",
+   "seed": 1,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 12,
+   "asset": "wide",
+   "seed": 2,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 13,
+   "asset": "wide",
+   "seed": 3,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 14,
+   "asset": "wide",
+   "seed": 4,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 15,
+   "asset": "standard",
+   "seed": 30,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 16,
+   "asset": "standard",
+   "seed": 31,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 17,
+   "asset": "tall",
+   "seed": 30,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 18,
+   "asset": "wide",
+   "seed": 30,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 19,
+   "asset": "imported/lux3d-ivory",
+   "seed": 0,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  },
+  {
+   "index": 20,
+   "asset": "imported/lux3d-ivory",
+   "seed": 1,
+   "frames": 157,
+   "success": true,
+   "duration_s": 7.800000190734863,
+   "image_age_max_ms": 16.00027084350586
+  }
+ ]
+}

@@ -1,0 +1,9 @@
+{
+ "input_dim": 25,
+ "frames": 3297,
+ "optimizer_steps": 1000,
+ "val_mse": 0.02077,
+ "gen_mse": 0.02136,
+ "reload_max_abs_diff": 0.0,
+ "note": "privileged (object pose included); sanity check of the training loop"
+}

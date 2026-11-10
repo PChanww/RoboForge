@@ -70,3 +70,30 @@ npm run dev
 ```
 
 打开 <http://localhost:5173>（Vite 将 `/api` 与 `/assets` 代理到 8767）。选择关节或相机→修改参数→「保存并应用」；「运行专家」可观看脚本抓放。详见 [阶段 C 报告](experiments/20261109-frontend/REPORT.md)。
+
+## 数据、训练与部署（阶段 D/E，2026-11-10）
+
+- **数据采集/LeRobot**：`scripts/collect_expert.py` 采集 21 个专家 episode（3297 帧，双相机+状态+动作+语言指令+成功标签）；`scripts/lerobot_writer.py` 用官方 lerobot 0.4.4 写出并回读校验；`scripts/data_checks.py` 检查时间戳/范围/图像/动作-位移对齐（余弦 0.911）；`scripts/replay_episode.py` 生成对齐回放 MP4。详见 [阶段 D 报告](experiments/20261110-data-training/REPORT.md)。
+- **训练闭环**：`scripts/train_bc.py`（WSL torch）真实训练 BC MLP、保存 checkpoint、重载验证（0 误差）、导出 numpy 权重；`scripts/eval_policy.py` 在与训练分开的 episode/摆位上闭环评测。诚实结果：模仿策略闭环成功率 0（原因与下一步见报告）。
+- **部署包**：`scripts/export_deploy.py` 导出 `deploy/lux3d_5r-v4/`（配置快照+资产+权重+契约+run.py），独立进程复建并运行（专家成功、策略运行记录）。详见 [阶段 E 报告](experiments/20261110-deploy-export/REPORT.md)。
+- **第二种机器人**：`configs/second_robot.json`（3 自由度直角坐标龙门）经通用接口描述并运行，验证无固定关节数假设。
+- **辅助模型/插件/导出**：`vlab/aux_model.py`（无凭据时等待配置，结构化导入校验）、`vlab/plugins.py`（控制器插件协议+示例）、`scripts/export_mjcf.py`（MJCF 导出）。
+
+## 验收对照（12 项）
+
+| # | 验收项 | 状态 | 证据 |
+| --- | --- | --- | --- |
+| 1 | 机械臂真实抓放 + 阴性对照 | ✅ 40/40，开爪 0/40 | [A 报告](experiments/20261109-arm-audit/REPORT.md) |
+| 2 | 修改关节参数+相机外参，保存/重开/确认 | ✅ v2→v5 生效 | [C 报告](experiments/20261109-frontend/REPORT.md) |
+| 3 | 30FPS/20Hz 多周期按仿真时间运行 | ✅ 271 帧/9s，间隔 0.03333s | `tests/test_engine.py` |
+| 4 | 外部控制器/模型客户端观测-动作循环 | ✅ HTTP+WS+插件 | `tests/test_api.py`、`datasets/reports/aux_plugin.json` |
+| 5 | 过期动作/错误维数/控制权冲突 | ✅ 409/400 | `tests/test_api.py` |
+| 6 | 采集并回读数据集、回放对齐 | ✅ 21 集/3297 帧 | [D 报告](experiments/20261110-data-training/REPORT.md)、`datasets/replay/` |
+| 7 | 策略训练/保存/重载/独立评测 | ✅ 管线真实；闭环 0/11（已诊断） | `datasets/reports/train_bc.json`、`eval_policy.json` |
+| 8 | VLA 与微调分别记录、成绩分开报告 | ◐ 脚本 40/40；学习 0/11；VLA 待适配 | D 报告 |
+| 9 | 部署包独立进程复建运行 | ✅ 专家成功 | `datasets/reports/deploy_check.json` |
+| 10 | 新终端按文档启动全流程 | ✅ README 命令 | 本文件 |
+| 11 | 两类机器人通用描述，无固定关节长度 | ✅ 5R + 3DOF 龙门 | `datasets/reports/second_robot.json` |
+| 12 | 已完成有入口/未通过说明原因 | ✅ 见各报告"未解决限制" | experiments/ |
+
+**未解决限制**：BC 闭环成功率 0（定时专家可模仿性差）；SmolVLA 新契约待适配、微调与实机未验证；URDF/USD/Isaac/ROS/ONNX 待适配；远程插件进程隔离未启用；实时墙钟 pacing 未实现。

@@ -1,0 +1,18 @@
+{
+ "robot": "cartesian_3dof",
+ "joints": [
+  "x",
+  "y",
+  "z",
+  "left",
+  "right"
+ ],
+ "action_dim": 4,
+ "supported_modes": [
+  "joint_position"
+ ],
+ "grasped": false,
+ "lifted": false,
+ "success": false,
+ "tick": 145
+}
