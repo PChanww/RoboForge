@@ -11,12 +11,40 @@ import struct
 import tempfile
 import zipfile
 from pathlib import Path
+from urllib.parse import urlsplit
+from urllib.request import urlopen
 
 import numpy as np
 import trimesh
 
 REGISTRY = Path(__file__).resolve().parents[1] / "assets" / "imported"
 MAX_FILE = 256 * 1024**2
+
+
+def download_mesh(outputs, directory):
+    """Download the first GLB/ZIP mesh from provider outputs, validating by magic bytes."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    urls = [s["content"] for s in outputs if isinstance(s.get("content"), str)
+            and urlsplit(s["content"]).scheme == "https"]
+    # URLs can be signed; check file signatures instead of trusting extensions.
+    for url in sorted(urls, key=lambda u: not urlsplit(u).path.lower().endswith(".glb")):
+        with urlopen(url, timeout=90) as response:
+            header = response.read(4)
+            if header == b"glTF":
+                path = directory / "result.glb"
+            elif header == b"PK\x03\x04":
+                path = directory / "result.zip"
+            else:
+                continue
+            with path.open("wb") as dest:
+                dest.write(header)
+                while chunk := response.read(1024 * 1024):
+                    if dest.tell() + len(chunk) > MAX_FILE:
+                        raise ValueError("Generated mesh exceeds 256 MiB.")
+                    dest.write(chunk)
+            return path
+    raise ValueError("Provider returned no GLB/ZIP mesh. Check the task's available exports.")
 
 
 def read_glb(path: Path, member: str | None = None) -> bytes:

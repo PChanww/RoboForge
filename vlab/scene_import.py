@@ -9,11 +9,14 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 import trimesh
+
+from .scene_assets import scene_asset_dir
 
 MAX_SCENE = 256 * 1024**2
 
@@ -45,7 +48,11 @@ def import_scene(src: Path, lab_root: Path, asset_id: str, revision: int = 1,
     src = Path(src)
     if src.stat().st_size > MAX_SCENE:
         raise ValueError("Scene exceeds 256 MiB.")
-    out = Path(lab_root) / "assets" / "scenes" / asset_id / str(revision)
+    out = scene_asset_dir(lab_root, asset_id, revision)
+    if up_axis not in {"Y", "Z"}:
+        raise ValueError("up_axis must be Y or Z")
+    if not np.isfinite(unit_scale) or unit_scale <= 0:
+        raise ValueError("unit_scale must be positive and finite")
     if out.exists():
         raise ValueError(f"Scene revision already exists: {out}")
     suffix = src.suffix.lower()
@@ -63,7 +70,23 @@ def import_scene(src: Path, lab_root: Path, asset_id: str, revision: int = 1,
         fmt, kind = "glb", "mesh"
     else:
         raise ValueError("Scene import supports .glb or .ply.")
-    out.mkdir(parents=True)
+    if mesh is not None:
+        if not isinstance(mesh, trimesh.Trimesh) or not len(mesh.faces) or not np.isfinite(mesh.vertices).all():
+            raise ValueError("Scene must contain a finite triangle mesh")
+        mesh = mesh.copy()
+        mesh.apply_scale(unit_scale)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=".import-", dir=out.parent))
+    try:
+        return _finish_import(src, out, staging, mesh, asset_id, revision, display_name,
+                              source_kind, fmt, kind, up_axis, unit_scale, calibrated)
+    finally:
+        if staging.exists() and staging.resolve().is_relative_to(out.parent.resolve()):
+            shutil.rmtree(staging)
+
+
+def _finish_import(src, target, out, mesh, asset_id, revision, display_name,
+                   source_kind, fmt, kind, up_axis, unit_scale, calibrated):
     (out / "source").mkdir()
     (out / "processed").mkdir()
     shutil.copy(src, out / "source" / src.name)
@@ -84,9 +107,12 @@ def import_scene(src: Path, lab_root: Path, asset_id: str, revision: int = 1,
         "category": "scene", "provider": "local", "source_kind": source_kind,
         "created": datetime.now(timezone.utc).isoformat(), "files": files, "format": fmt,
         "ply_kind": kind, "up_axis": "Z" if mesh is not None else up_axis,
+        "source_up_axis": up_axis,
         "unit_scale": unit_scale, "calibrated": calibrated,
+        "normalized_units": mesh is not None,
         "visual_asset": "processed/visual.obj" if mesh is not None else None,
         "bbox": bbox, "status": status,
     }
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
-    return out / "manifest.json"
+    out.rename(target)
+    return target / "manifest.json"

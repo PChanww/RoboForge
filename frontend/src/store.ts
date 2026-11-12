@@ -19,7 +19,7 @@ interface State {
   busy: boolean
   error: string | null
   logs: LogEntry[]
-  init: () => Promise<void>
+  init: (project?: string) => Promise<void>
   select: (s: Selection) => void
   edit: (fn: (c: ProjectConfig) => void) => void
   save: () => Promise<void>
@@ -33,6 +33,8 @@ interface State {
 
 let runTimer: ReturnType<typeof setInterval> | null = null
 let stepping = false
+let initQueue = Promise.resolve()
+let hideListenerInstalled = false
 
 export const useStore = create<State>((set, get) => ({
   config: null,
@@ -52,14 +54,16 @@ export const useStore = create<State>((set, get) => ({
   log: (msg, level = 'info') =>
     set((s) => ({ logs: [...s.logs.slice(-199), { t: new Date().toLocaleTimeString(), msg, level }] })),
 
-  init: async () => {
+  init: async (project) => {
+    const load = async () => {
     try {
       set({ busy: true, error: null })
-      const config = await api.getConfig()
-      set({ config, dirty: false, activeRobotId: get().activeRobotId || config.robots[0].id })
-      if (!get().sessionId) await get().reloadSession()
+      const config = await api.getConfig(project || get().config?.project_id || 'default')
+      const changed = get().config?.project_id !== config.project_id || get().config?.version !== config.version
+      set({ config, dirty: false, activeRobotId: config.robots.some(r => r.id === get().activeRobotId) ? get().activeRobotId : config.robots[0].id, selection: null })
+      if (changed || !get().sessionId) await get().reloadSession()
       get().log(`已加载配置 v${config.version}，会话就绪`)
-      window.addEventListener('pagehide', () => {
+      if (!hideListenerInstalled) window.addEventListener('pagehide', () => {
         if (runTimer) { clearInterval(runTimer); runTimer = null }
         const { sessionId, token } = get()
         if (sessionId && token) {
@@ -69,12 +73,16 @@ export const useStore = create<State>((set, get) => ({
           }).catch(() => {})
         }
       })
+      hideListenerInstalled = true
     } catch (e: any) {
       set({ error: e.message })
       get().log(e.message, 'error')
     } finally {
       set({ busy: false })
     }
+    }
+    initQueue = initQueue.then(load, load)
+    await initQueue
   },
 
   select: (selection) => set({ selection }),

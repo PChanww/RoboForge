@@ -83,12 +83,27 @@ export interface Controller {
   action_range: number[][]
 }
 
+export interface SceneCollider {
+  name: string
+  shape: 'box' | 'plane' | 'cylinder'
+  full_size_m: number[]
+  position: number[]
+  quaternion_xyzw: number[]
+  enabled: boolean
+  friction: number[]
+  contype: number
+  conaffinity: number
+  tag: string
+}
+
 export interface ProjectConfig {
   schema_version: string
   project_id: string
   version: number
   validation_status: string
-  scene: { physics_dt: number; seed: number; gravity: number[] }
+  scene: { physics_dt: number; seed: number; gravity: number[]; use_default_table?: boolean;
+    sensor_renderer?: 'mujoco' | 'hybrid'; work_surface_z?: number; colliders?: SceneCollider[];
+    environment?: { asset_id: string; revision: number; position: number[]; quaternion_xyzw: number[]; uniform_scale: number } | null }
   robots: Robot[]
   sensors: Sensor[]
   controllers: Controller[]

@@ -54,8 +54,41 @@ export const api = {
   deployments: () => req<{ deployments: any[] }>('GET', '/api/v1/deployments'),
   generationStatus: () => req<any>('GET', '/api/v1/generation-jobs'),
   sceneAssets: () => req<{ scenes: any[] }>('GET', '/api/v1/scene-assets'),
-  sceneAsset: (id: string) => req<any>('GET', `/api/v1/scene-assets/${id}`),
-  sceneValidate: (id: string) => req<any>('POST', `/api/v1/scene-assets/${id}/validate`, {}),
+  sceneAsset: (id: string, revision?: number) => req<any>('GET', `/api/v1/scene-assets/${encodeURIComponent(id)}${revision ? '?revision='+revision : ''}`),
+  sceneValidate: (id: string, revision?: number) => req<any>('POST', `/api/v1/scene-assets/${encodeURIComponent(id)}/validate${revision ? '?revision='+revision : ''}`, {}),
   sceneImport: (body: any) => req<any>('POST', '/api/v1/scene-assets/import', body),
   bindScene: (pid: string, body: any) => req<any>('POST', `/api/v1/projects/${pid}/bind-scene`, body),
+  generateScene: (params: Record<string, unknown>) => req<any>('POST', '/api/v1/generation-jobs', {kind: 'generation', params}),
+  pollGeneration: (id: string) => req<any>('POST', `/api/v1/generation-jobs/${id}/poll`, {}),
+  getScene: (pid: string) => req<any>('GET', `/api/v1/projects/${pid}/scene`),
+  commitScene: (pid: string, body: any) => req<any>('PUT', `/api/v1/projects/${pid}/scene`, body),
+  setSceneInstance: (pid: string, body: any) => req<any>('PUT', `/api/v1/projects/${pid}/scene/instance`, body),
+  setColliders: (pid: string, colliders: any[]) => req<any>('PUT', `/api/v1/projects/${pid}/scene/colliders`, { colliders }),
+  lux3dStatus: () => req<any>('GET', '/api/v1/lux3d/status'),
+  lux3dGenerate: (body: any) => req<any>('POST', '/api/v1/lux3d/generate', body),
+  deploymentDetail: (name: string) => req<any>('GET', `/api/v1/deployments/${name}`),
+  deploymentCompat: (name: string, robotId: string, project = 'default') =>
+    req<any>('GET', `/api/v1/deployments/${name}/compat?robot_id=${robotId}&project=${project}`),
+  // generation loop (round 4)
+  genCapabilities: () => req<any>('GET', '/api/v1/generation/capabilities'),
+  genSessions: () => req<{ sessions: any[] }>('GET', '/api/v1/generation/sessions'),
+  genSession: (id: string) => req<any>('GET', `/api/v1/generation/sessions/${id}`),
+  genCreateSession: (body: any) => req<any>('POST', '/api/v1/generation/sessions', body),
+  genMessage: (id: string, content: string, expected_revision: number) =>
+    req<any>('POST', `/api/v1/generation/sessions/${id}/messages`, { content, expected_revision }),
+  genPatchSpec: (id: string, body: any) => req<any>('PATCH', `/api/v1/generation/sessions/${id}/spec`, body),
+  genAnswer: (id: string, question_id: string, answer: string, expected_revision: number) =>
+    req<any>('POST', `/api/v1/generation/sessions/${id}/answer`, { question_id, answer, expected_revision }),
+  genCompile: (id: string, body: any = {}) => req<any>('POST', `/api/v1/generation/sessions/${id}/compile`, body),
+  genBranch: (id: string, reason: string, expected_revision: number) =>
+    req<any>('POST', `/api/v1/generation/sessions/${id}/branch`, { reason, expected_revision }),
+  genConfirm: (id: string, body: any) => req<any>('POST', `/api/v1/generation/sessions/${id}/confirm`, body),
+  genTasks: (id: string) => req<any>('GET', `/api/v1/generation/sessions/${id}/tasks`),
+  genPoll: (id: string, jobId: string) =>
+    req<any>('POST', `/api/v1/generation/sessions/${id}/tasks/${jobId}/poll`, {}),
+  genRetryNode: (id: string, jobId: string, node: string) =>
+    req<any>('POST', `/api/v1/generation/sessions/${id}/tasks/${jobId}/retry`, { node }),
+  recipeValidate: (id: string, projectId = 'default') => req<any>('POST', `/api/v1/scene-recipes/${id}/validate?project_id=${projectId}`, {}),
+  recipeApply: (id: string, body: any) => req<any>('POST', `/api/v1/scene-recipes/${id}/apply`, body),
+  recipeFromSession: (id: string, body: any) => req<any>('POST', `/api/v1/generation/sessions/${id}/recipe`, body),
 }

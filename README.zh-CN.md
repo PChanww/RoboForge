@@ -181,6 +181,31 @@ cd frontend
 npm run build
 ```
 
+## 场景与视觉训练
+
+可选 World SDK：`python -m pip install -r requirements-world.txt`，在后端环境配置 `AHOLO_API_KEY`。资产中心支持场景导入、生成和显式查询任务；成功下载后登记场景版本。高斯资产仍仅供预览，尚不支持训练渲染。
+
+网格导入会实际应用单位比例；物理使用需确认尺寸，并保留默认桌面或提供碰撞代理。仿真页按路由加载对应项目。视觉采集、转换、训练和评估可选择项目、数据集与模型，作业保存配置快照；转换不会删除已有数据集。新模型记录输入/动作契约，旧模型需通过 CLI 明确选择历史契约假设。
+
+## 对话式生成闭环
+
+把自然语言需求变成可训练场景的连通闭环：对话（可选）或直接表单/JSON → 版本化 `AssetSpec`/`PhysicsSpec`
+（字段级 provenance）→ 确定性编译预览 → 显式确认 → Lux3D 单体 / World 背景生成（幂等、节点级恢复）→
+导入校验 → `SceneRecipe` 组装 → 真实 MuJoCo 校验 → 原子应用到新项目版本 → 仿真 / 采集。
+
+- 语言模型只理解与建议，程序校验、编排、落地。估计的质量/摩擦/尺度保持 `model_inferred/unverified`，
+  不会变成"已测量"。未知尺寸 → 未标定视觉资产，处理前不绑定物理。
+- 未配置 `AUX_MODEL_BASE_URL`/`AUX_MODEL_API_KEY` 时对话显示 `waiting_for_configuration`；表单/JSON/本地导入
+  仍可用，不用模板冒充模型。凭据仅后端环境读取。
+- 两种场景模式：`composed_scene`（参数化工作台+显式静态代理+可操作对象，无需 World/标定）与
+  `background_scene`（World 外观+显式代理；高斯需受限固定前视 `hybrid`）。远程生成成功 ≠ 已导入 ≠ 可训练。
+- API 位于 `/api/v1/generation/*` 与 `/api/v1/scene-recipes/*`；页面：生成工作台、任务详情、RecipePanel
+  （校验后原子应用到项目版本并读回）。
+- 采集 manifest 记录任务资产 mesh/manifest 哈希、生成来源、recipe/spec revision、物理 basis、相机与 `renderer_version`。
+
+详见 [生成闭环工作流](docs/GENERATION_WORKFLOW.zh-CN.md) 与
+[第四轮测试/能力报告](docs/ROUND4_GENERATION_REPORT.zh-CN.md)。
+
 ## 历史原型
 
 `server.py` 默认端口为 **8765**。8767 端口的平台后端也提供旧版 `/api/*` 兼容路由。

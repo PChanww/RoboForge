@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import parse_qs
 
 import mujoco
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -19,6 +20,7 @@ from . import sessions as sess_mod
 from .engine import SCHEMA_VERSION, UnsupportedMode
 from .schema import ProjectConfig
 from .store import ConfigStore, validate_config
+from .scene_assets import valid_id, scene_asset_dir, load_scene, contained_file
 
 LAB_ROOT = Path(os.environ.get("VLAB_ROOT", Path(__file__).resolve().parents[1]))
 
@@ -93,10 +95,73 @@ class GenerationBody(BaseModel):
     params: dict = {}
 
 
+class Lux3dBody(BaseModel):
+    name: str
+    prompt: str = ""
+    height_m: float = 0.09
+    mass_kg: float = 0.12
+    radius_m: float | None = None
+    kind: str | None = None
+    role: str = "dynamic"
+    width_m: float | None = None
+    depth_m: float | None = None
+
+
+class SceneInstanceBody(BaseModel):
+    position: list[float] = [0, 0, 0]
+    quaternion_xyzw: list[float] = [0, 0, 0, 1]
+    uniform_scale: float = 1.0
+    use_default_table: bool | None = None
+    expected_version: int | None = None
+
+
+class CollidersBody(BaseModel):
+    colliders: list[dict] = []
+    expected_version: int | None = None
+
+
+class SceneCommitBody(BaseModel):
+    environment: dict | None = None
+    colliders: list[dict] = []
+    use_default_table: bool | None = None
+    work_surface_z: float | None = None
+    expected_version: int
+
+
 def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     app = FastAPI(title="VLA Lab Platform", version=SCHEMA_VERSION)
     store = ConfigStore(lab_root / "projects")
     manager = sess_mod.SessionManager()
+    scene_lock = threading.Lock()
+
+    def _validate_candidate(candidate):
+        env = candidate.scene.environment
+        if env is not None:
+            load_scene(lab_root, env.asset_id, env.revision,
+                       physics=candidate.scene.sensor_renderer != "hybrid")
+        issues = validate_config(candidate, lab_root)
+        if issues:
+            raise HTTPException(400, {"issues": issues})
+
+    def _commit_scene(pid, mutate, expected_version=None):
+        """Validate the whole config, then save once. Any failure leaves current untouched."""
+        valid_id(pid)
+        with scene_lock:
+            cfg = store.load(pid) if store.exists(pid) else store.load("default")
+            if expected_version is not None and cfg.version != expected_version:
+                raise HTTPException(409, {"error": f"scene version conflict: expected v{expected_version}, current v{cfg.version}",
+                                          "current_version": cfg.version, "expected_version": expected_version})
+            data = cfg.model_dump()
+            data["project_id"] = pid
+            data["validation_status"] = "candidate"
+            mutate(data)
+            from pydantic import ValidationError
+            try:
+                candidate = ProjectConfig.model_validate(data)
+            except ValidationError as exc:
+                raise HTTPException(400, {"issues": [str(e) for e in exc.errors()]})
+            _validate_candidate(candidate)
+            return store.save(candidate.model_copy(update={"project_id": pid, "validation_status": "validated"}))
     if not store.exists("default"):
         from .make_default_config import build
         store.save(build())
@@ -105,7 +170,6 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     # does not open an OpenGL context (a second GLFW context in a background process
     # can segfault; the first session renderer becomes the primary context).
     import server
-    import threading
     legacy_worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="legacy")
     legacy_lab = None
     legacy_lock = threading.Lock()
@@ -138,6 +202,14 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     async def _unsupported(_req, exc):
         return JSONResponse({"error": str(exc)}, status_code=400)
 
+    @app.exception_handler(ValueError)
+    async def _bad_value(_req, exc):
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+    @app.exception_handler(FileNotFoundError)
+    async def _missing_file(_req, exc):
+        return JSONResponse({"error": "Requested project or asset file does not exist"}, status_code=404)
+
     def _session(sid):
         try:
             return manager.get(sid)
@@ -151,7 +223,10 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         from .engine import PlatformEnv
         robots = []
         for r in cfg.robots:
-            env = PlatformEnv(cfg, lab_root, robot_id=r.id)
+            has5r = {"waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"} <= {j.name for j in r.joints}
+            ctrl = next((c.id for c in cfg.controllers
+                         if (c.mode == "cartesian_delta_ik") == has5r), cfg.controllers[0].id)
+            env = PlatformEnv(cfg, lab_root, robot_id=r.id, controller_id=ctrl)
             robots.append({"id": r.id, "joints": [j.name for j in r.joints if j.type != "fixed"],
                            "end_effector": r.end_effector, "supported_modes": env.supported_modes()})
             env.close()
@@ -394,6 +469,14 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
             out.append({"id": "staging", "kind": "staging", "episodes": m["summary"]["episodes"],
                         "frames": m["summary"]["frames"], "successes": m["summary"]["successes"],
                         "control_source": m.get("control_source")})
+        collections = lab_root / "datasets" / "collections"
+        if collections.is_dir():
+            for d in sorted(collections.iterdir()):
+                mf = d / "manifest.json"
+                if mf.is_file():
+                    m = json.loads(mf.read_text(encoding="utf-8"))
+                    out.append({"id": "collection__" + d.name, "collection_id": d.name,
+                                "kind": "staging", **m["summary"]})
         ler = lab_root / "datasets" / "lerobot"
         if ler.is_dir():
             for d in sorted(ler.iterdir()):
@@ -405,8 +488,11 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
 
     @app.get("/api/v1/datasets/{did}")
     def get_dataset(did: str):
+        valid_id(did)
         if did == "staging":
             p = lab_root / "datasets" / "staging" / "manifest.json"
+        elif did.startswith("collection__"):
+            p = lab_root / "datasets" / "collections" / valid_id(did[len("collection__"):]) / "manifest.json"
         else:
             p = lab_root / "datasets" / "lerobot" / did / "meta" / "info.json"
         if not p.is_file():
@@ -432,6 +518,12 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
                           "source": "lux3d", "generation_id": "5025807"})
         return {"assets": items}
 
+    def _pkg_manifest(name: str):
+        mf = lab_root / "deploy" / name / "manifest.json"
+        if not mf.is_file():
+            raise HTTPException(404, "unknown deployment package")
+        return json.loads(mf.read_text(encoding="utf-8"))
+
     @app.get("/api/v1/deployments")
     def list_deployments():
         out = []
@@ -441,9 +533,32 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
                 mf = d / "manifest.json"
                 if mf.is_file():
                     m = json.loads(mf.read_text(encoding="utf-8"))
-                    out.append({"id": d.name, "package_id": m.get("package_id"),
-                                "robot": m.get("robot"), "created": m.get("created_utc")})
+                    kind = m.get("kind") or ("visual" if m.get("architecture") else "baseline")
+                    out.append({"id": d.name, "package_id": m.get("package_id") or d.name, "kind": kind,
+                                "robot": m.get("robot"), "created": m.get("created") or m.get("created_utc")})
         return {"deployments": out}
+
+    @app.get("/api/v1/deployments/{name}")
+    def deployment_detail(name: str):
+        return _pkg_manifest(name)
+
+    @app.get("/api/v1/deployments/{name}/compat")
+    def deployment_compat(name: str, robot_id: str | None = None, project: str = "default"):
+        from .compat import check_contract
+        mf = _pkg_manifest(name)
+        contract = mf.get("contract")
+        if not contract:
+            return {"compatible": None, "mismatches": ["baseline package has no visual model contract"],
+                    "robot": robot_id}
+        if contract.get("joint_names"):
+            mapped = contract
+        else:  # legacy simplified contract
+            mapped = {"joint_names": contract["state_names"][:5],
+                      "action_mode": contract.get("action_mode"), "action_dim": len(contract["action_names"]),
+                      "action_names": contract["action_names"], "camera_keys": [contract["image_key"]],
+                      "fps": contract.get("fps"), "privileged": contract.get("privileged", False)}
+        cfg = store.load(project)
+        return check_contract(mapped, cfg, robot_id)
 
     # -- scene assets --------------------------------------------------------
     import base64 as _b64
@@ -453,18 +568,24 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
 
     @app.post("/api/v1/scene-assets/import")
     def scene_import_ep(body: SceneImportBody):
+        tmp = None
         try:
-            data = _b64.b64decode(body.data_b64)
+            valid_id(body.asset_id)
+            if len(body.data_b64) > (scene_import.MAX_SCENE * 4 // 3 + 8):
+                raise ValueError("Scene exceeds 256 MiB")
+            data = _b64.b64decode(body.data_b64, validate=True)
             with _tmp.NamedTemporaryFile(suffix=Path(body.filename).suffix, delete=False) as f:
                 f.write(data)
                 tmp = Path(f.name)
             mf = scene_import.import_scene(tmp, lab_root, body.asset_id, 1,
                                            up_axis=body.up_axis, unit_scale=body.unit_scale,
                                            calibrated=body.calibrated)
-            tmp.unlink(missing_ok=True)
             return json.loads(mf.read_text(encoding="utf-8"))
         except ValueError as exc:
             raise HTTPException(400, str(exc))
+        finally:
+            if tmp is not None:
+                tmp.unlink(missing_ok=True)
 
     @app.get("/api/v1/scene-assets")
     def scene_list():
@@ -479,7 +600,10 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         return {"scenes": out}
 
     @app.get("/api/v1/scene-assets/{asset_id}")
-    def scene_detail(asset_id: str):
+    def scene_detail(asset_id: str, revision: int | None = None):
+        valid_id(asset_id)
+        if revision is not None:
+            return load_scene(lab_root, asset_id, revision)[1]
         d = lab_root / "assets" / "scenes" / asset_id
         revs = sorted([p for p in d.iterdir() if p.name.isdigit()], key=lambda p: int(p.name)) if d.is_dir() else []
         if not revs:
@@ -487,33 +611,92 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         return json.loads((revs[-1] / "manifest.json").read_text(encoding="utf-8"))
 
     @app.post("/api/v1/scene-assets/{asset_id}/validate")
-    def scene_validate(asset_id: str):
-        d = lab_root / "assets" / "scenes" / asset_id
-        revs = sorted([p for p in d.iterdir() if p.name.isdigit()], key=lambda p: int(p.name)) if d.is_dir() else []
-        if not revs:
-            raise HTTPException(404, "unknown scene asset")
-        mf = json.loads((revs[-1] / "manifest.json").read_text(encoding="utf-8"))
-        issues = []
-        if not mf.get("calibrated"):
-            issues.append("uncalibrated: preview only, not a verified physical scene")
-        if mf.get("visual_asset") and not (revs[-1] / mf["visual_asset"]).is_file():
-            issues.append("visual asset missing")
-        return {"valid": not issues, "issues": issues, "status": mf.get("status")}
+    def scene_validate(asset_id: str, revision: int | None = None):
+        mf = scene_detail(asset_id, revision)
+        try:
+            load_scene(lab_root, asset_id, mf["revision"], physics=True)
+            return {"valid": True, "issues": [], "status": mf.get("status")}
+        except ValueError as exc:
+            return {"valid": False, "issues": [str(exc)], "status": mf.get("status")}
+
+    @app.get("/api/v1/scene-assets/{asset_id}/revisions/{revision}/visual.obj")
+    def scene_visual(asset_id: str, revision: int):
+        d, mf = load_scene(lab_root, asset_id, revision, physics=True)
+        return FileResponse(contained_file(d, mf["visual_asset"]), media_type="text/plain")
+
+    @app.get("/api/v1/scene-assets/{asset_id}/revisions/{revision}/preview")
+    def scene_preview(asset_id: str, revision: int):
+        d, mf = load_scene(lab_root, asset_id, revision)
+        name = mf.get("preview_asset")
+        if not name or name not in mf.get("files", {}):
+            raise HTTPException(404, "Scene has no preview image")
+        return FileResponse(contained_file(d, name), media_type="image/jpeg")
+
+    @app.put("/api/v1/projects/{pid}/scene")
+    def commit_scene(pid: str, body: SceneCommitBody):
+        def mutate(data):
+            data["scene"]["environment"] = body.environment
+            data["scene"]["colliders"] = body.colliders
+            if body.use_default_table is not None:
+                data["scene"]["use_default_table"] = body.use_default_table
+            if body.work_surface_z is not None:
+                data["scene"]["work_surface_z"] = body.work_surface_z
+        saved = _commit_scene(pid, mutate, body.expected_version)
+        return {"version": saved.version,
+                "environment": saved.scene.environment.model_dump() if saved.scene.environment else None,
+                "colliders": [c.model_dump() for c in saved.scene.colliders],
+                "use_default_table": saved.scene.use_default_table,
+                "work_surface_z": saved.scene.work_surface_z}
+
+    @app.put("/api/v1/projects/{pid}/scene/instance")
+    def set_scene_instance(pid: str, body: SceneInstanceBody):
+        def mutate(data):
+            env = data["scene"].get("environment")
+            if env is None:
+                raise HTTPException(400, "no environment bound; bind a scene first")
+            env = dict(env)
+            env.update({"position": body.position, "quaternion_xyzw": body.quaternion_xyzw,
+                        "uniform_scale": body.uniform_scale})
+            data["scene"]["environment"] = env
+            if body.use_default_table is not None:
+                data["scene"]["use_default_table"] = body.use_default_table
+        saved = _commit_scene(pid, mutate, body.expected_version)
+        return {"version": saved.version, "environment": saved.scene.environment.model_dump()}
+
+    @app.get("/api/v1/projects/{pid}/scene")
+    def get_scene(pid: str):
+        cfg = store.load(pid) if store.exists(pid) else store.load("default")
+        return {"environment": cfg.scene.environment.model_dump() if cfg.scene.environment else None,
+                "colliders": [c.model_dump() for c in cfg.scene.colliders],
+                "use_default_table": cfg.scene.use_default_table,
+                "work_surface_z": cfg.scene.work_surface_z, "version": cfg.version}
+
+    @app.put("/api/v1/projects/{pid}/scene/colliders")
+    def set_colliders(pid: str, body: CollidersBody):
+        def mutate(data):
+            data["scene"]["colliders"] = body.colliders
+        saved = _commit_scene(pid, mutate, body.expected_version)
+        return {"version": saved.version, "colliders": [c.model_dump() for c in saved.scene.colliders]}
 
     @app.post("/api/v1/projects/{pid}/bind-scene")
     def bind_scene(pid: str, body: BindSceneBody):
+        valid_id(pid)
+        load_scene(lab_root, body.asset_id, body.revision, physics=True)
         cfg = store.load(pid) if store.exists(pid) else store.load("default")
         cfg = cfg.model_copy(update={"project_id": pid})
         cfg.scene.environment = SceneInstance(asset_id=body.asset_id, revision=body.revision,
                                               position=body.position, quaternion_xyzw=body.quaternion_xyzw,
                                               uniform_scale=body.uniform_scale)
         cfg.scene.use_default_table = body.use_default_table
+        issues = validate_config(cfg, lab_root)
+        if issues:
+            raise HTTPException(400, {"issues": issues})
         return store.save(cfg).model_dump()
 
     @app.get("/api/v1/compat")
-    def compat_check(robot_id: str | None = None, model: str = "state"):
+    def compat_check(robot_id: str | None = None, model: str = "state", project: str = "default"):
         from .compat import check_contract
-        cfg = store.load("default")
+        cfg = store.load(project)
         base = {"joint_names": ["waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"],
                 "action_mode": "cartesian_delta_ik", "action_dim": 4,
                 "action_names": ["dx", "dy", "dz", "grip"], "fps": 20.0,
@@ -526,8 +709,40 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
             raise HTTPException(400, "model must be state|priv|visual")
         return check_contract(base, cfg, robot_id)
 
+    @app.post("/api/v1/compat")
+    def compat_contract(body: dict):
+        from .compat import check_contract
+        cfg = (ProjectConfig.model_validate(body["config"]) if "config" in body
+               else store.load(body.get("project", "default")))
+        return check_contract(body["contract"], cfg, body.get("robot_id"))
+
     from .world_provider import GenerationJobStore
-    gen_store = GenerationJobStore(lab_root / "datasets" / "generation_jobs")
+    gen_store = GenerationJobStore(lab_root / "datasets" / "generation_jobs", lab_root=lab_root)
+
+    from .generation.api import register_generation_api
+    generation_ctx = register_generation_api(app, lab_root, store=store, world_store=gen_store,
+                                             commit_scene=_commit_scene)
+
+    @app.get("/api/v1/lux3d/status")
+    def lux3d_status():
+        key = os.environ.get("AHOLO_API_KEY") or os.environ.get("LUX3D_CN_API_KEY") or os.environ.get("LUX3D_API_KEY")
+        return {"provider": "lux3d", "configured": bool(key),
+                "note": "set AHOLO_API_KEY in the backend environment to enable single-asset generation"}
+
+    @app.post("/api/v1/lux3d/generate")
+    def lux3d_generate(body: Lux3dBody):
+        key = os.environ.get("AHOLO_API_KEY") or os.environ.get("LUX3D_CN_API_KEY") or os.environ.get("LUX3D_API_KEY")
+        if not key:
+            raise HTTPException(409, "AHOLO_API_KEY not configured; object generation is unavailable (local import still works)")
+        slug = body.name.strip().lower().replace(" ", "-")
+        try:
+            return jobs.create("lux3d_generate", {
+                "slug": slug, "prompt": body.prompt, "height_m": body.height_m,
+                "mass_kg": body.mass_kg, "radius_m": body.radius_m,
+                "asset_kind": body.kind, "role": body.role, "width_m": body.width_m, "depth_m": body.depth_m,
+                "provider": "lux3d", "kind": "object_generation"})
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
 
     @app.get("/api/v1/generation-jobs")
     def generation_status():
@@ -538,7 +753,7 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
 
     @app.post("/api/v1/generation-jobs")
     def generation_submit(body: GenerationBody):
-        return gen_store.submit(body.kind, body.params)
+        return gen_store.submit(body.kind, body.params, background=True)
 
     @app.get("/api/v1/generation-jobs/{jid}")
     def generation_get(jid: str):
@@ -549,7 +764,7 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
 
     @app.post("/api/v1/generation-jobs/{jid}/poll")
     def generation_poll(jid: str):
-        j = gen_store.poll(jid)
+        j = gen_store.poll(jid, background=True)
         if not j:
             raise HTTPException(404, "unknown generation job")
         return j

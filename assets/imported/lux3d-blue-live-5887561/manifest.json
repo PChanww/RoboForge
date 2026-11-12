@@ -1,0 +1,38 @@
+{
+  "obj": "visual.obj",
+  "radius": 0.03,
+  "height": 0.09,
+  "mass": 0.12,
+  "radius_m": 0.03,
+  "height_m": 0.09,
+  "mass_kg": 0.12,
+  "bounds_m": [
+    [
+      -0.0323314809888496,
+      -0.031733035435459134,
+      0.0
+    ],
+    [
+      0.03228400908090983,
+      0.03191176316150425,
+      0.09
+    ]
+  ],
+  "up_axis": "Z",
+  "triangles": 17794,
+  "collision_proxy": "upright cylinder, body only; no handle/rim/interior contacts",
+  "radius_basis": "user-specified",
+  "source": "lux3d",
+  "source_detail": "official SDK live validation 2026-11-10",
+  "generation_id": "5887561",
+  "prompt": null,
+  "source_mesh": "original.glb",
+  "sha256_glb": "f528f681510c7f9969e4fd136fecf741af6a7afea0012e344e6c2e12a0b2426d",
+  "scale_basis": "user-specified height, not an automatic physical measurement",
+  "color_rgb": [
+    0.07224877624819195,
+    0.23665341694489064,
+    0.33141780474020843
+  ],
+  "color_basis": "area-weighted mean of material or indexed vertex colors; uniform simulator tint"
+}

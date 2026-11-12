@@ -17,6 +17,7 @@ import arm
 
 from . import kinematics, scene_builder, tasks
 from .mjcf import mesh_files, robot_xml
+from .rendering.snapshot import capture_snapshot
 from .scheduler import CameraBuffer, Scheduler
 from .schema import ProjectConfig
 
@@ -41,9 +42,13 @@ class PlatformEnv:
         self.controller = (config.controllers[0] if controller_id is None
                            else next(c for c in config.controllers if c.id == controller_id))
         self._renderers = {}
+        self._seg_renderers = {}
+        self._sensor_errors = {}
+        self._hybrid = None
         self.model = self.data = None
         self._buffers = {}
         self._state = None
+        self.epoch = 0  # single owner of the episode generation; bumped in reset()
         self.reset(config.scene.seed)
 
     # -- model construction -------------------------------------------------
@@ -74,10 +79,21 @@ class PlatformEnv:
 
     def _build(self, seed):
         cfg = self.config
+        if cfg.scene.environment and not cfg.scene.use_default_table and not any(c.enabled for c in cfg.scene.colliders):
+            raise UnsupportedMode("Imported tabletop scene requires a default table or explicit static colliders; visual meshes do not provide contact")
         r, h, mass, color, mesh, offset, handle = tasks.asset_params(cfg.task.asset, self.lab_root)
         spawn = tasks.spawn_xy(cfg.task, seed)
+        self._hybrid_ply = None
         if cfg.scene.sensor_renderer == "hybrid":
-            raise UnsupportedMode("hybrid sensor renderer not implemented; use sensor_renderer=mujoco")
+            from .rendering.hybrid import find_gaussian_ply
+            if cfg.scene.environment is None:
+                raise UnsupportedMode("hybrid renderer requires a bound gaussian scene environment")
+            ply = find_gaussian_ply(self.lab_root, cfg.scene.environment)
+            if ply is None:
+                raise UnsupportedMode("hybrid renderer requires a gaussian (.ply) scene; mesh scenes use mujoco")
+            if not (cfg.scene.use_default_table or any(c.enabled for c in cfg.scene.colliders)):
+                raise UnsupportedMode("hybrid scene needs a default table or enabled static colliders for physics")
+            self._hybrid_ply = ply
         body, actuators, mesh_names, world_cams = robot_xml(self.robot, cfg.sensors)
         env_xml, env_assets, self._env_info = scene_builder.environment_xml(cfg, self.lab_root)
         task_scene = tasks.task_xml(cfg.task, r, h, mass, color, offset, handle, spawn)
@@ -118,6 +134,7 @@ class PlatformEnv:
     # -- lifecycle ----------------------------------------------------------
     def reset(self, seed=None):
         seed = self.config.scene.seed if seed is None else int(seed)
+        self.epoch = getattr(self, "epoch", 0) + 1  # before initial capture
         self.close()
         self.model = self._build(seed)
         self.data = mujoco.MjData(self.model)
@@ -136,6 +153,10 @@ class PlatformEnv:
         self._servo_dwell = 0
         self._ik_error = None
         self._render_error = None
+        if not hasattr(self, "_hybrid"):
+            self._hybrid = None  # world-fixed gaussian background: cached across resets
+        self._sensor_errors = {}
+        self._seg_renderers = {}
         if self.controller.mode == "cartesian_delta_ik":
             ik = self._ik(self._target)
             for name, q in zip(("waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"), ik):
@@ -168,20 +189,69 @@ class PlatformEnv:
         while self.data.time < target - 1e-9:
             mujoco.mj_step(self.model, self.data)
 
-    def _render_camera(self, sensor):
-        w, h = sensor.resolution
+    def _render_camera(self, sensor, width=None, height=None):
+        w, h = sensor.resolution if width is None else (width, height)
         key = (w, h)
         if key not in self._renderers:
             self._renderers[key] = mujoco.Renderer(self.model, height=h, width=w)
         renderer = self._renderers[key]
         renderer.update_scene(self.data, camera=sensor.id)
-        return renderer.render()
+        rgb = renderer.render()
+        if self.config.scene.sensor_renderer != "hybrid":
+            return rgb
+        if sensor.id != "front":
+            raise UnsupportedMode("static_background_overlay only supports the world-fixed front camera")
+        from .rendering.hybrid import foreground_ids
+        hybrid = self._hybrid_renderer(sensor, w, h)
+        skey = (w, h, "seg")
+        if skey not in self._seg_renderers:
+            r = mujoco.Renderer(self.model, height=h, width=w)
+            r.enable_segmentation_rendering()
+            self._seg_renderers[skey] = r
+        segr = self._seg_renderers[skey]
+        segr.update_scene(self.data, camera=sensor.id)
+        seg = segr.render()
+        comp, _ = hybrid.compose(rgb, seg, foreground_ids(self))
+        return comp
 
-    def _push_frame(self, sensor, episode_time):
+    @property
+    def render_mode(self):
+        from .rendering.hybrid import HYBRID_MODE
+        return HYBRID_MODE if self.config.scene.sensor_renderer == "hybrid" else "mujoco"
+
+    def _hybrid_renderer(self, sensor, w, h):
+        """Background renderer keyed by camera pose/intrinsics, size, asset hash,
+        instance transform and renderer version. Rebuilt after reset/camera changes."""
+        from .rendering.hybrid import HybridRenderer
+        cam_id = self.model.camera(sensor.id).id
+        k = sensor.intrinsics
+        sx, sy = w / sensor.resolution[0], h / sensor.resolution[1]
+        cam = {"world_pos": np.asarray(self.data.cam_xpos[cam_id]).copy(),
+               "world_mat": np.asarray(self.data.cam_xmat[cam_id]).reshape(3, 3).copy(),
+               "fx": k.fx * sx, "fy": k.fy * sy, "cx": k.cx * sx, "cy": k.cy * sy,
+               "width": w, "height": h}
+        env = self.config.scene.environment
+        inst = {"position": env.position, "quat_xyzw": env.quaternion_xyzw,
+                "uniform_scale": env.uniform_scale} if env else None
+        from .rendering.hybrid import _cache_key
+        key = _cache_key(self._hybrid_ply, cam, inst, w, h)
+        if self._hybrid is None or getattr(self, "_hybrid_key", None) != key:
+            self._hybrid = HybridRenderer(self._hybrid_ply, width=w, height=h, inst=inst, camera=cam)
+            self._hybrid_key = key
+        return self._hybrid
+
+    def _push_frame(self, sensor, episode_time, snap=None):
         if self._render_error:
             return  # headless/no-GL: physics still runs, cameras report unavailable
+        # Capture an immutable snapshot at the sampling instant, then render from it.
+        if snap is None:
+            snap = capture_snapshot(self, episode_time)
+        cam = snap["cameras"][sensor.id]
         try:
             frame = self._render_camera(sensor)
+        except UnsupportedMode as exc:  # e.g. wrist under hybrid: report, don't disable all
+            self._sensor_errors[sensor.id] = str(exc)
+            return
         except Exception as exc:  # GLFW/GL unavailable in a detached process
             self._render_error = f"{type(exc).__name__}: {exc}"
             return
@@ -189,12 +259,17 @@ class PlatformEnv:
             "capture_time": round(episode_time, 6),
             "available_time": round(episode_time + self._latency[sensor.id], 6),
             "width": sensor.resolution[0], "height": sensor.resolution[1],
+            "request_id": snap["request_id"], "snapshot_epoch": snap["epoch"],
+            "session_id": snap["session_id"],
+            "camera_world_pos": list(cam["world_pos"]),
+            "camera_world_mat": [list(r) for r in cam["world_mat"]],
             "jpeg_b64": _jpeg_b64(frame)})
         self.scheduler.record_capture(sensor.id, episode_time)
 
     def _capture_all(self, episode_time):
+        snap = capture_snapshot(self, episode_time)
         for s in self.config.sensors:
-            self._push_frame(s, episode_time)
+            self._push_frame(s, episode_time, snap)
 
     def _sample_state(self, episode_time):
         pos = {n: float(self.data.qpos[self._qposadr[n]]) for n in self._joints}
@@ -271,9 +346,11 @@ class PlatformEnv:
         events = []
         for s in self.config.sensors:
             events.extend((t, s) for t in self.scheduler.capture_times_in(t_start, t_end, s.id))
-        for t, s in sorted(events, key=lambda x: x[0]):
+        for t in sorted({t for t, _ in events}):
             self._step_to(t)
-            self._push_frame(s, self.episode_time())
+            snap = capture_snapshot(self, self.episode_time())  # shared by same-instant cameras
+            for _, s in [e for e in events if e[0] == t]:
+                self._push_frame(s, self.episode_time(), snap)
         self._step_to(t_end)
         self._sample_state(self.episode_time())
         self.scheduler.record_control(self.episode_time())
@@ -290,10 +367,11 @@ class PlatformEnv:
             f = buf.latest_available(t)
             frames[s.id] = f
             captures = self.scheduler.capture_count[s.id]
+            serr = self._sensor_errors.get(s.id) or self._render_error
             status[s.id] = {
-                "state": ("render_unavailable" if self._render_error
+                "state": ("render_unavailable" if serr
                           else "ok" if f else ("waiting" if buf.frames else "no_frame")),
-                "render_error": self._render_error,
+                "render_error": serr,
                 "frame_id": f["frame_id"] if f else None,
                 "capture_time": f["capture_time"] if f else None,
                 "available_time": f["available_time"] if f else None,
@@ -306,6 +384,7 @@ class PlatformEnv:
             }
         return {"schema_version": SCHEMA_VERSION, "robot": self.robot.id,
                 "controller": self.controller.id, "control_mode": self.controller.mode,
+                "render_mode": self.render_mode,
                 "config_version": self.config.version, "tick": self.scheduler.tick,
                 "sim_time": round(t, 6), "seed": self.seed,
                 "state": self._state, "images": frames, "camera_status": status,
@@ -375,16 +454,16 @@ class PlatformEnv:
         return [*delta.tolist(), grip]
 
     def render(self, camera="front", width=800, height=540):
+        """Preview rendering: uses exactly the same backend/scene source as observation."""
         if camera not in self._buffers:
             raise ValueError(f"unknown camera {camera}")
-        key = (width, height)
-        if key not in self._renderers:
-            self._renderers[key] = mujoco.Renderer(self.model, height=height, width=width)
-        r = self._renderers[key]
-        r.update_scene(self.data, camera=camera)
-        return r.render()
+        sensor = next(s for s in self.config.sensors if s.id == camera)
+        return self._render_camera(sensor, width, height)
 
     def close(self):
         for r in self._renderers.values():
             r.close()
         self._renderers = {}
+        for r in getattr(self, "_seg_renderers", {}).values():
+            r.close()
+        self._seg_renderers = {}

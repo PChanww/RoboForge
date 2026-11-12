@@ -32,19 +32,24 @@ def main():
     args = ap.parse_args()
     staging, out = Path(args.staging), Path(args.out)
     manifest = json.loads((staging / "manifest.json").read_text(encoding="utf-8"))
-    fps = int(manifest["fps"])
-    features = {
-        "observation.state": {"dtype": "float32", "shape": (len(STATE_NAMES),), "names": STATE_NAMES},
-        "action": {"dtype": "float32", "shape": (len(ACTION_NAMES),), "names": ACTION_NAMES},
-        "observation.images.front": {"dtype": "image", "shape": (256, 256, 3),
-                                     "names": ["height", "width", "channel"]},
-        "observation.images.wrist": {"dtype": "image", "shape": (256, 256, 3),
-                                     "names": ["height", "width", "channel"]},
-    }
     if out.exists():
-        import shutil
-        shutil.rmtree(out)
-    ds = LeRobotDataset.create(repo_id="local/vla-lab-expert21", fps=fps, features=features,
+        raise ValueError("Dataset output exists; choose a new dataset ID (existing data is never deleted)")
+    fps = int(manifest["fps"])
+    if fps != manifest["fps"]:
+        raise ValueError("LeRobot baseline requires an integer control FPS")
+    joint_names = manifest["joints"]
+    state_names = joint_names + [n + "_vel" for n in joint_names] + ["eef_x", "eef_y", "eef_z", "gripper"]
+    cfg = manifest["config_snapshot"]
+    action_names = cfg["controllers"][0]["action_names"]
+    features = {
+        "observation.state": {"dtype": "float32", "shape": (len(state_names),), "names": state_names},
+        "action": {"dtype": "float32", "shape": (len(action_names),), "names": action_names},
+    }
+    for camera in cfg["sensors"]:
+        w, h = camera["resolution"]
+        features[f"observation.images.{camera['id']}"] = {"dtype": "image", "shape": (h, w, 3), "names": ["height", "width", "channel"]}
+    repo_id = "local/" + out.name
+    ds = LeRobotDataset.create(repo_id=repo_id, fps=fps, features=features,
                                root=out, robot_type=manifest["robot"], use_videos=False)
     for ep in manifest["episodes"]:
         z = np.load(staging / "episodes" / f"ep{ep['index']:03d}.npz", allow_pickle=True)
@@ -55,17 +60,27 @@ def main():
             frame = {
                 "observation.state": state,
                 "action": z["action"][i].astype(np.float32),
-                "observation.images.front": decode(z["jpeg_front"][i]),
-                "observation.images.wrist": decode(z["jpeg_wrist"][i]),
-                "task": "Place the cup in the tray.",
+                "task": cfg["task"]["instruction"],
             }
+            for camera in manifest["cameras"]:
+                frame[f"observation.images.{camera}"] = decode(z[f"jpeg_{camera}"][i])
             ds.add_frame(frame)
         ds.save_episode()
         print(f"wrote episode {ep['index']} ({ep['asset']}, seed {ep['seed']}) frames={n} success={ep['success']}", flush=True)
     ds.finalize()
+    (out / "meta" / "simulation.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
+    # Companion per-frame timing (real capture/available/age) so time info survives export.
+    with (out / "meta" / "frame_timing.jsonl").open("w", encoding="utf-8") as tf:
+        for row in manifest["episodes"]:
+            z = np.load(staging / "episodes" / f"ep{row['index']:03d}.npz", allow_pickle=True)
+            for i in range(len(z["frame_time"])):
+                rec = {"episode": row["index"], "frame": i, "sim_time": float(z["frame_time"][i]),
+                       "cameras": {c: {"capture_time": float(z[f"capture_time_{c}"][i]),
+                                       "age_s": float(z[f"age_{c}"][i])} for c in manifest["cameras"]}}
+                tf.write(json.dumps(rec) + "\n")
 
     # Verify by reading the dataset back through the official loader.
-    ds2 = LeRobotDataset(repo_id="local/vla-lab-expert21", root=out)
+    ds2 = LeRobotDataset(repo_id=repo_id, root=out)
     print(json.dumps({"episodes": ds2.num_episodes, "frames": ds2.num_frames,
                       "fps": ds2.fps, "features": list(ds2.features.keys()),
                       "video_keys": list(ds2.meta.video_keys), "image_keys": list(ds2.meta.image_keys)}))

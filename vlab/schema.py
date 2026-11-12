@@ -6,6 +6,7 @@ other by name; the engine resolves names, never fixed array indices.
 from __future__ import annotations
 
 from enum import Enum
+import math
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -237,6 +238,15 @@ class TaskConfig(BaseModel):
     instruction: str = "Place the cup in the tray."
 
 
+def _scene_pose(position, quaternion):
+    if len(position) != 3 or not all(math.isfinite(v) for v in position):
+        raise ValueError("Scene position needs three finite values")
+    if len(quaternion) != 4 or not all(math.isfinite(v) for v in quaternion) or sum(v*v for v in quaternion) < 1e-12:
+        raise ValueError("Scene quaternion needs four finite, non-zero components")
+    norm = math.sqrt(sum(v*v for v in quaternion))
+    quaternion[:] = [v / norm for v in quaternion]
+
+
 class SceneCollider(BaseModel):
     """Static collision proxy. full_size_m is the FULL extent (MuJoCo half-sizes derived on export)."""
     name: str
@@ -252,23 +262,31 @@ class SceneCollider(BaseModel):
 
     @model_validator(mode="after")
     def _size(self):
-        if len(self.full_size_m) != 3 or any(v <= 0 for v in self.full_size_m[:2]):
-            raise ValueError(f"collider {self.name}: full_size_m needs positive x/y")
-        if len(self.quaternion_xyzw) != 4:
-            raise ValueError(f"collider {self.name}: quaternion_xyzw needs 4 components")
+        from .scene_assets import valid_id
+        valid_id(self.name)
+        if len(self.full_size_m) != 3 or any(not math.isfinite(v) or v <= 0 for v in self.full_size_m):
+            raise ValueError(f"collider {self.name}: full_size_m needs three positive finite dimensions")
+        _scene_pose(self.position, self.quaternion_xyzw)
+        if self.shape == "cylinder" and abs(self.full_size_m[0] - self.full_size_m[1]) > 1e-9:
+            raise ValueError(f"collider {self.name}: cylinder needs equal x/y (no elliptical support)")
+        if len(self.friction) != 3 or any(not math.isfinite(v) or v < 0 for v in self.friction):
+            raise ValueError("friction requires three finite non-negative values")
         return self
 
 
 class SceneInstance(BaseModel):
     asset_id: str
-    revision: int = 1
+    revision: int = Field(default=1, ge=1)
     position: list[float] = [0, 0, 0]
     quaternion_xyzw: list[float] = [0, 0, 0, 1]
     uniform_scale: float = 1.0
 
     @model_validator(mode="after")
     def _scale(self):
-        if self.uniform_scale <= 0:
+        from .scene_assets import valid_id
+        valid_id(self.asset_id)
+        _scene_pose(self.position, self.quaternion_xyzw)
+        if not math.isfinite(self.uniform_scale) or self.uniform_scale <= 0:
             raise ValueError("uniform_scale must be positive (non-uniform scale not supported)")
         return self
 
@@ -288,7 +306,7 @@ class SceneAssetManifest(BaseModel):
     up_axis: str = "Z"
     unit_scale: float = 1.0
     calibrated: bool = False
-    visual_asset: str = "processed/visual.obj"
+    visual_asset: str | None = "processed/visual.obj"
     collision_asset: str | None = None
     calibration: dict = {}
     bbox: list | None = None
@@ -311,6 +329,11 @@ class SceneConfig(BaseModel):
     def _dt(self):
         if not 0 < self.physics_dt <= 0.01:
             raise ValueError("physics_dt must be in (0, 0.01]")
+        names = [c.name for c in self.colliders]
+        if len(names) != len(set(names)):
+            raise ValueError("Scene collider names must be unique")
+        if self.work_surface_z != 0:
+            raise ValueError("Current tabletop task only supports work_surface_z=0; task-frame adaptation is not implemented")
         return self
 
 

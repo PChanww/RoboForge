@@ -1,5 +1,7 @@
 # 场景链路验证记录
 
+> 后续复核发现：scene_demo 关闭默认桌面但缺少碰撞代理，历史采集/模型结果不能直接归因为可达性。修复方案、重新采集与实际验证见 [修复草案](SCENE_REPAIR_PROPOSAL.zh-CN.md)。以下保留为原版本的历史记录。
+
 日期：2026-11-10 · 代码基线：见提交（场景链路）。区分：已实现 / 已验证 / 未验证 / 后续增强。
 
 ## 已验证（真实运行）
@@ -29,9 +31,9 @@
 ## 未验证
 
 - Aholo World 真实在线生成/重建（需 `AHOLO_API_KEY` + 可选 `manycore-aholo-sdk-world`）：仅 mock 可控测试，真实调用未验证。
-- 3D 高斯 hybrid 渲染与遮挡合成：未实现，`sensor_renderer=hybrid` 显式报错。
 - 自动碰撞提取（splat-transform）：未接入。
-- 非中心主点/非对称 fx≠fy 的跨渲染器投影一致性：MuJoCo 路径已用真实内参，但只有一种渲染器。
+- hybrid 的限制：splat 与解析盒的前/后/边缘遮挡和半透明混合已数值验证（`tests/test_occlusion_translucency.py`），但 hybrid 合成仍不按 splat 深度遮挡 MuJoCo 前景；wrist 相机仍不可用。
+- 相机数值投影：`tests/test_camera_projection.py` 覆盖非中心主点/fx≠fy/非方形/铰链运动（≤0.85 px），并修复 MuJoCo 主点导出偏移；仅 MuJoCo 渲染器，CPU 高斯路径使用同一套角点内参（见 PHASE2_VALIDATION T04）。
 
 ## 后续增强
 

@@ -187,7 +187,34 @@ Project scenes can bind an imported/generated environment revision with an insta
 
 - API: `POST /api/v1/scene-assets/import`, `GET /api/v1/scene-assets[/{id}]`, `POST /api/v1/scene-assets/{id}/validate`, `POST /api/v1/projects/{id}/bind-scene`, `POST/GET /api/v1/generation-jobs`.
 - UI: Asset center → import scene; `/scenes/:id/edit` → validate / bind to project.
+- Optional World SDK: `python -m pip install -r requirements-world.txt`; set `AHOLO_API_KEY` in the backend environment. Generation jobs are polled explicitly; successful downloads are registered as scene revisions. Gaussian assets remain preview-only.
+- Scene imports apply `unit_scale` to mesh coordinates. Physical use requires confirmed units and either the default table or explicit collision proxies. Project routes load their own configuration and session.
+- Visual collect/train/eval jobs accept selected project/dataset/model IDs. Collection and evaluation save configuration snapshots; conversion refuses to overwrite datasets. New visual checkpoints include their input/action contract; legacy checkpoints require explicit CLI opt-in.
 - Docs: [scene pipeline](docs/SCENE_PIPELINE.zh-CN.md) · [validation record](docs/SCENE_VALIDATION.zh-CN.md).
+
+## Conversational generation workflow
+
+A connected loop turns a natural-language request into a trainable scene:
+chat (optional) or direct form/JSON → versioned `AssetSpec`/`PhysicsSpec` with per-field provenance →
+deterministic compile preview → explicit confirm → Lux3D single-asset / World background generation
+(idempotent, node-level recovery) → import validation → `SceneRecipe` assembly → real-MuJoCo validation →
+atomic apply to a new project version → simulation / collection.
+
+- The LLM only understands and suggests; programs validate, orchestrate, and land. Estimated mass/friction/scale
+  stay `model_inferred/unverified` and never become "measured". Unknown dimensions yield an uncalibrated visual
+  asset with no physics binding until processed.
+- Without `AUX_MODEL_BASE_URL`/`AUX_MODEL_API_KEY` the chat shows `waiting_for_configuration`; form/JSON/local
+  import still work and no template reply impersonates a model. Credentials are read from the backend environment only.
+- Two scene modes: `composed_scene` (parameterized workbench + explicit static proxies + manipulable object; works
+  without World/calibration) and `background_scene` (World appearance + explicit proxies; gaussian requires the
+  restricted fixed-front `hybrid` renderer). Remote generation success ≠ imported ≠ trainable.
+- API under `/api/v1/generation/*` and `/api/v1/scene-recipes/*`; UI: generation workbench, task detail, and a
+  RecipePanel that validates then atomically applies to a project version with read-back.
+- Collection manifests record task-asset mesh/manifest hashes, generation source, recipe/spec revision,
+  physics basis, cameras, and `renderer_version`.
+
+See [generation workflow](docs/GENERATION_WORKFLOW.zh-CN.md) and the
+[round-4 test/capability report](docs/ROUND4_GENERATION_REPORT.zh-CN.md).
 
 ## Legacy prototype
 

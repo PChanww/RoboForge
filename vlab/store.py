@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from .schema import ProjectConfig
+from .scene_assets import valid_id
 
 
 class ConfigStore:
@@ -15,6 +16,7 @@ class ConfigStore:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def _dir(self, project_id):
+        valid_id(project_id)
         d = self.root / project_id
         (d / "versions").mkdir(parents=True, exist_ok=True)
         return d

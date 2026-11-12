@@ -35,4 +35,38 @@ def check_contract(contract: dict, config, robot_id: str | None = None):
         mism.append(f"policy fps {contract['fps']} != controller {ctrl.frequency_hz}")
     if contract.get("privileged"):
         mism.append("policy requires privileged object pose (not deployable on sensor-only observation)")
+    for field, value in contract.get("controller_spec", {}).items():
+        if ctrl.model_dump().get(field) != value:
+            mism.append(f"controller {field} differs from training")
+    for name, expected in contract.get("camera_specs", {}).items():
+        actual = next((s for s in config.sensors if s.id == name), None)
+        if actual is None:
+            mism.append(f"camera {name} missing")
+            continue
+        actual = actual.model_dump()
+        for field, value in expected.items():
+            if actual.get(field) != value:
+                mism.append(f"camera {name}.{field} differs from training")
     return {"compatible": not mism, "mismatches": mism, "robot": robot.id}
+
+
+def visual_contract(config):
+    """The current CNN evaluator supports one named 5R baseline, not arbitrary robots."""
+    if config.scene.environment and not config.scene.use_default_table and not any(c.enabled for c in config.scene.colliders):
+        raise ValueError("Scene has no table collision support; repair the scene and recollect data before training")
+    expected = ["waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"]
+    contract = {"joint_names": expected, "action_mode": "cartesian_delta_ik", "action_dim": 4,
+                "action_names": ["dx", "dy", "dz", "grip"], "fps": 20.0,
+                "camera_keys": ["front"], "privileged": False}
+    result = check_contract(contract, config)
+    names = [j.name for j in config.robots[0].joints if j.type != "fixed"]
+    if names != expected + ["left", "right"]:
+        result["mismatches"].append("VisualBC requires the seven baseline state joints in order")
+    if result["mismatches"]:
+        raise ValueError("Unsupported VisualBC input: " + "; ".join(result["mismatches"]))
+    sensor = next(s for s in config.sensors if s.id == "front")
+    contract["camera_specs"] = {"front": {k: v for k, v in sensor.model_dump().items() if k != "id"}}
+    contract["state_joint_names"] = names
+    contract["controller_spec"] = {k: v for k, v in config.controllers[0].model_dump().items()
+                                   if k in {"mode", "action_dim", "action_names", "frame", "max_delta_m", "frequency_hz", "action_range"}}
+    return contract

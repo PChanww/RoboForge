@@ -1,0 +1,11 @@
+{
+ "type": "visual BC (image+state, no object pose)",
+ "frames": 1952,
+ "train_frames": 1394,
+ "optimizer_steps": 440,
+ "val_mse": 0.01319,
+ "gen_mse": 0.01472,
+ "reload_max_abs_diff": 0.0,
+ "dataset": "hybrid_engine_v2",
+ "checkpoint": "/mnt/c/Users/31295/Documents/Codex/2026-11-09/https-www-aholo3d-cn-hackathon-utm/outputs/vla-lab/datasets/models/visual_hybrid.pt"
+}

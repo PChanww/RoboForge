@@ -1,0 +1,25 @@
+{
+ "asset_id": "world_586c79650960",
+ "revision": 1,
+ "display_name": "world_586c79650960",
+ "category": "scene",
+ "provider": "aholo_world",
+ "source_kind": "generation",
+ "created": "2026-11-10T10:13:56.930809+00:00",
+ "files": {
+  "source/scene.ply": "8895bd1117cd97849d981598d7fc842e68724bd3b5c67be780a3a7159981ab22",
+  "preview/panorama.jpg": "a59708ec7de24177d1bf619ff39d44c706fb00c03783b47e10adbb3eb35812de"
+ },
+ "format": "ply",
+ "ply_kind": "gaussian",
+ "up_axis": "Z",
+ "unit_scale": 1.0,
+ "calibrated": false,
+ "normalized_units": false,
+ "visual_asset": null,
+ "bbox": null,
+ "status": "preview_only",
+ "remote_task_id": "3FO4K4RMF54N",
+ "source_detail": "Empty robotics laboratory validation",
+ "preview_asset": "preview/panorama.jpg"
+}

@@ -14,12 +14,15 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--lab", required=True, help="path to vla-lab")
+    ap.add_argument("--dataset", default="expert21")
+    ap.add_argument("--staging", default="datasets/staging")
     args = ap.parse_args()
     lab = Path(args.lab)
-    ds = LeRobotDataset(repo_id="local/vla-lab-expert21", root=lab / "datasets" / "lerobot" / "expert21")
-    cfg = json.loads((lab / "configs" / "default.json").read_text(encoding="utf-8"))
-    manifest = json.loads((lab / "datasets" / "staging" / "manifest.json").read_text(encoding="utf-8"))
+    ds = LeRobotDataset(repo_id="local/" + args.dataset, root=lab / "datasets" / "lerobot" / args.dataset)
+    manifest = json.loads((lab / args.staging / "manifest.json").read_text(encoding="utf-8"))
+    cfg = manifest.get("config_snapshot") or json.loads((lab / "configs" / "default.json").read_text(encoding="utf-8"))
     limits = {j["name"]: j["range"] for j in cfg["robots"][0]["joints"] if j["range"]}
+    joint_names = manifest["joints"]
 
     issues, per_episode = [], []
     prev_ts = {}
@@ -36,8 +39,10 @@ def main():
         if ep in prev_ts and ts <= prev_ts[ep]:
             issues.append(f"frame {i}: timestamp not increasing within episode")
         prev_ts[ep] = ts
-        joints = st[:7]
-        for k, name in enumerate(["waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw", "left", "right"]):
+        joints = st[:len(joint_names)]
+        for k, name in enumerate(joint_names):
+            if name not in limits:
+                continue
             lo, hi = limits[name]
             if not lo - 1e-3 <= joints[k] <= hi + 1e-3:
                 issues.append(f"frame {i}: joint {name}={joints[k]:.3f} outside [{lo},{hi}]")
@@ -53,7 +58,7 @@ def main():
     # and the commanded translation must correlate with actual eef displacement.
     ages, intervals, cosines = [], [], []
     for row in manifest["episodes"]:
-        z = np.load(lab / "datasets" / "staging" / "episodes" / f"ep{row['index']:03d}.npz", allow_pickle=True)
+        z = np.load(lab / args.staging / "episodes" / f"ep{row['index']:03d}.npz", allow_pickle=True)
         ft = z["frame_time"]
         for mid, cam in enumerate(manifest["cameras"]):
             ct = z[f"capture_time_{cam}"]
@@ -94,7 +99,7 @@ def main():
         },
         "episodes": per_episode,
     }
-    out = lab / "datasets" / "reports" / "data_checks.json"
+    out = lab / "datasets" / "reports" / f"data_checks_{args.dataset}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps({"issues": issues[:5], "n_issues": len(issues),

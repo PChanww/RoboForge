@@ -27,9 +27,12 @@ def _visual_xml(v):
 
 def _camera_xml(s: SensorConfig):
     w, h = s.resolution
+    # Config stores corner-based pixels; MuJoCo 4.0.0 renders principalpixel as a
+    # center-relative offset with the opposite sign (verified in tests/test_camera_projection.py).
+    px, py = w / 2 - s.intrinsics.cx, h / 2 - s.intrinsics.cy
     return (f'<camera name="{s.id}" pos="{_fmt(s.position)}" xyaxes="{_fmt(s.xyaxes)}" '
             f'sensorsize=".032 .024" focalpixel="{s.intrinsics.fx:.6g} {s.intrinsics.fy:.6g}" '
-            f'principalpixel="{s.intrinsics.cx:.6g} {s.intrinsics.cy:.6g}" resolution="{w} {h}"/>')
+            f'principalpixel="{px:.6g} {py:.6g}" resolution="{w} {h}"/>')
 
 
 def robot_xml(robot: RobotConfig, sensors: list[SensorConfig]):

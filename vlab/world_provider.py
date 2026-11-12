@@ -1,18 +1,24 @@
 """Aholo World provider adapter (generation / reconstruction) + persistent job store.
 
-Real online calls require the optional World SDK and AHOLO_API_KEY; without them the
-adapter reports unconfigured and only controlled/mock tests run. Remote task IDs are
-persisted BEFORE submit completes so a retry/restart never creates a duplicate
-billable task. Local stop != remote cancel (the provider exposes no cancel here).
+Real calls require the World SDK and AHOLO_API_KEY. Unknown submit outcomes are
+never automatically resubmitted; a local receipt cannot guarantee remote exactly-once
+creation across crashes. Poll/download retries reuse the known remote ID.
 """
 from __future__ import annotations
 
 import json
+import copy
+import hashlib
+import shutil
 import os
 import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
+from urllib.request import urlopen
+
+from .scene_assets import valid_id, scene_asset_dir
 
 
 def _now():
@@ -31,6 +37,8 @@ class WorldProvider:
 
     def _sdk(self):
         if self._client is None:
+            if not self.key:
+                raise NotImplementedError("Set AHOLO_API_KEY to enable World generation")
             try:
                 from manycore.aholo_sdk_world import create_world_client
                 from manycore.aholo_sdk_core import AholoClientConfig
@@ -41,35 +49,63 @@ class WorldProvider:
 
     def submit_generation(self, prompt, ref_image=None, **params):
         c = self._sdk()
-        kw = {"prompt": prompt}
-        if ref_image:
-            kw["img"] = ref_image
-        return str(c.text_to_world.create(**kw, **params))
+        resources = [{"url": ref_image, "type": "image"}] if ref_image else None
+        op = c.generations.create(name=params.get("name", "RoboForge scene"), prompt=prompt, resources=resources)
+        return str(op["worldId"])
 
     def submit_reconstruction(self, inputs, **params):
         c = self._sdk()
-        return str(c.reconstruction.create(inputs=inputs, **params))
+        op = c.reconstructions.create(name=params.get("name", "RoboForge reconstruction"),
+                resources=inputs, scene="space", task_quality=params.get("task_quality", "normal"))
+        return str(op["worldId"])
 
     def get_status(self, task_id):
         c = self._sdk()
-        r = c.tasks.get(task_id)
-        return {"state": r.get("status"), "remote_id": task_id, "outputs": r.get("outputs", []),
-                "error": r.get("error")}
+        r = c.retrieve(task_id)
+        status = r.get("status")
+        if status in {"PENDING", "PREPROCESSING", "RUNNING"}:
+            state = "remote_processing"
+        elif status == "SUCCEEDED":
+            state = "succeeded"
+        elif status in {"FAILED", "CANCELED", "TIMEOUT", "REJECTED"}:
+            state = "failed"
+        else:
+            raise ValueError(f"Unknown World status: {status}")
+        assets = r.get("assets") or {}
+        urls = (assets.get("splats") or {}).get("urls") or {}
+        outputs = []
+        for field, filename in [("plyPath", "scene.ply"), ("spzPath", "scene.spz")]:
+            if urls.get(field):
+                outputs.append({"url": urls[field], "filename": filename, "role": "scene"})
+                break
+        pano = (assets.get("imagery") or {}).get("panoUrl")
+        if pano:
+            outputs.append({"url": pano, "filename": "panorama.jpg", "role": "preview"})
+        return {"state": state, "provider_status": status, "remote_id": task_id, "outputs": outputs,
+                "up_axis": (assets.get("semanticsMetadata") or {}).get("upAxis"),
+                "error": str(r.get("error") or status) if state == "failed" else None}
 
-    def download_assets(self, task_id, directory):
-        st = self.get_status(task_id)
+    def download_assets(self, task_id, directory, *, status=None):
+        st = status or self.get_status(task_id)
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         files = []
-        for i, o in enumerate(st["outputs"]):
-            url = o.get("content")
-            if not isinstance(url, str) or not url.startswith("https"):
-                continue
-            import urllib.request
-            dest = directory / f"asset_{i}.bin"
-            with urllib.request.urlopen(url, timeout=90) as resp, dest.open("wb") as f:
-                f.write(resp.read())
-            files.append(str(dest))
+        for o in st["outputs"]:
+            if urlsplit(o["url"]).scheme != "https" or o["filename"] not in {"scene.ply", "scene.spz", "panorama.jpg"}:
+                raise ValueError("Invalid World output URL or filename")
+            dest = directory / o["filename"]
+            if not dest.exists():
+                partial = dest.with_suffix(dest.suffix + ".part")
+                try:
+                    with urlopen(o["url"], timeout=90) as resp, partial.open("wb") as f:
+                        while chunk := resp.read(1024 * 1024):
+                            if f.tell() + len(chunk) > 256 * 1024**2:
+                                raise ValueError("World output exceeds 256 MiB")
+                            f.write(chunk)
+                    partial.replace(dest)
+                finally:
+                    partial.unlink(missing_ok=True)
+            files.append({"path": str(dest), "role": o["role"], "sha256": hashlib.sha256(dest.read_bytes()).hexdigest()})
         return files
 
 
@@ -97,60 +133,146 @@ class MockWorldProvider:
             return {"state": "failed", "remote_id": task_id, "outputs": [], "error": "mock failure"}
         return {"state": "succeeded", "remote_id": task_id, "outputs": [], "error": None}
 
-    def download_assets(self, task_id, directory):
-        return []
+    def download_assets(self, task_id, directory, *, status=None):
+        directory = Path(directory)
+        directory.mkdir(parents=True, exist_ok=True)
+        src = directory / "scene.ply"
+        src.write_text("ply\nformat ascii 1.0\nelement vertex 1\nproperty float f_dc_0\nend_header\n0\n")
+        return [{"path": str(src), "role": "scene", "sha256": hashlib.sha256(src.read_bytes()).hexdigest()}]
 
 
 class GenerationJobStore:
-    def __init__(self, root: Path, provider=None):
+    def __init__(self, root: Path, provider=None, *, lab_root=None):
         self.dir = Path(root)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.path = self.dir / "generation_jobs.json"
         self.provider = provider or WorldProvider()
-        self._lock = threading.Lock()
-        self._jobs = {j["id"]: j for j in json.loads(self.path.read_text())} if self.path.is_file() else {}
+        self.lab_root = Path(lab_root) if lab_root else self.dir / "registered"
+        self._lock = threading.RLock()
+        self._active = set()
+        self._jobs = {j["id"]: j for j in json.loads(self.path.read_text(encoding="utf-8"))} if self.path.is_file() else {}
+        for j in self._jobs.values():
+            if j["state"] == "submitting":
+                j.update(state="interrupted", error="Submit interrupted; check remote history before creating another task")
+        self._save()
 
     def _save(self):
-        self.path.write_text(json.dumps(list(self._jobs.values()), ensure_ascii=False, indent=1))
+        with self._lock:
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(list(self._jobs.values()), ensure_ascii=False, indent=1), encoding="utf-8")
+            tmp.replace(self.path)
 
     def list(self):
-        return sorted(self._jobs.values(), key=lambda j: j["created"], reverse=True)
+        with self._lock:
+            return copy.deepcopy(sorted(self._jobs.values(), key=lambda j: j["created"], reverse=True))
+
+    def _commit(self, job):
+        with self._lock:
+            self._jobs[job["id"]] = copy.deepcopy(job)
+            self._save()
 
     def get(self, jid):
-        return self._jobs.get(jid)
+        with self._lock:
+            return copy.deepcopy(self._jobs.get(jid))
 
-    def submit(self, kind, params):
+    def submit(self, kind, params, *, background=False):
+        if kind not in {"generation", "reconstruction"}:
+            raise ValueError("kind must be generation or reconstruction")
+        if kind == "generation" and (not isinstance(params.get("prompt"), str) or not params["prompt"].strip()):
+            raise ValueError("Generation requires a prompt")
+        if params.get("remote_id"):
+            valid_id(str(params["remote_id"]))
+        if params.get("ref_image") and urlsplit(str(params["ref_image"])).scheme != "https":
+            raise ValueError("Reference image must be an HTTPS URL")
+        if kind == "reconstruction":
+            inputs = params.get("inputs", [])
+            if not isinstance(inputs, list) or not inputs:
+                raise ValueError("Reconstruction requires input resources")
+            if any(not isinstance(r, dict) or r.get("type") not in {"image", "video", "insv"}
+                   or urlsplit(str(r.get("url", ""))).scheme != "https" for r in inputs):
+                raise ValueError("Resources require an HTTPS URL and image/video/insv type")
+            if all(r["type"] == "image" for r in inputs) and len(inputs) < 20:
+                raise ValueError("Image reconstruction requires at least 20 images")
         jid = uuid.uuid4().hex[:12]
-        job = {"id": jid, "kind": kind, "params": params, "state": "submitting",
+        job = {"id": jid, "kind": kind, "params": copy.deepcopy(params), "state": "submitting",
                "remote_id": None, "created": _now(), "error": None}
         with self._lock:
             self._jobs[jid] = job
             self._save()  # persist intent BEFORE remote submit (no duplicate on retry)
+        if background:
+            threading.Thread(target=self._submit, args=(jid,), daemon=True).start()
+        else:
+            self._submit(jid)
+        return self.get(jid)
+
+    def _submit(self, jid):
+        job = self.get(jid)
+        kind, params = job["kind"], job["params"]
         try:
-            if kind == "generation":
-                rid = self.provider.submit_generation(params.get("prompt", ""), params.get("ref_image"))
+            if params.get("remote_id"):
+                rid = params["remote_id"]
+            elif kind == "generation":
+                rid = self.provider.submit_generation(params["prompt"], params.get("ref_image"), name=params.get("name", "RoboForge scene"))
             else:
-                rid = self.provider.submit_reconstruction(params.get("inputs", []))
-            job.update(remote_id=rid, state="remote_processing")
+                rid = self.provider.submit_reconstruction(params.get("inputs", []), name=params.get("name", "RoboForge reconstruction"), task_quality=params.get("task_quality", "normal"))
+            job.update(remote_id=str(rid), state="remote_processing")
         except TimeoutError as exc:
             job.update(state="interrupted", error=str(exc))  # remote id unknown; resume manually
         except NotImplementedError as exc:
             job.update(state="unconfigured", error=str(exc))
         except Exception as exc:
             job.update(state="failed", error=str(exc))
-        with self._lock:
-            self._save()
-        return job
+        self._commit(job)
 
-    def poll(self, jid):
-        job = self._jobs.get(jid)
-        if not job or not job.get("remote_id"):
-            return job
+    def poll(self, jid, *, background=False):
+        with self._lock:
+            job = self._jobs.get(jid)
+            if not job or not job.get("remote_id") or job["state"] == "failed" or (job["state"] == "succeeded" and job.get("asset_id")) or jid in self._active:
+                return self.get(jid)
+            self._active.add(jid)
+        if background:
+            threading.Thread(target=self._poll, args=(jid,), daemon=True).start()
+        else:
+            self._poll(jid)
+        return self.get(jid)
+
+    def _poll(self, jid):
+        job = self.get(jid)
         try:
             st = self.provider.get_status(job["remote_id"])
-            job.update(state=st["state"], error=st.get("error"))
+            job.update(error=st.get("error"), provider_status=st.get("provider_status"))
+            if st["state"] == "succeeded":
+                job["state"] = "downloading"
+                self._commit(job)
+                files = self.provider.download_assets(job["remote_id"], self.dir / jid / "outputs", status=st)
+                job.update(state="processing", files=files)
+                self._commit(job)
+                from .scene_import import import_scene
+                src = next((Path(f["path"]) for f in files if f["role"] == "scene"), None)
+                if src is None or src.suffix != ".ply":
+                    raise ValueError("No importable PLY; downloaded files retained (SPZ import not supported)")
+                aid = valid_id("world_" + jid)
+                manifest_path = scene_asset_dir(self.lab_root, aid, 1) / "manifest.json"
+                if not manifest_path.exists():
+                    manifest_path = import_scene(src, self.lab_root, aid, source_kind=job["kind"], up_axis=st.get("up_axis") or "Z")
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                manifest.update(provider="aholo_world", remote_task_id=job["remote_id"], source_detail=job["params"].get("prompt", ""))
+                preview = next((Path(f["path"]) for f in files if f["role"] == "preview"), None)
+                if preview is not None:
+                    dest = manifest_path.parent / "preview" / "panorama.jpg"
+                    dest.parent.mkdir(exist_ok=True)
+                    shutil.copyfile(preview, dest)
+                    manifest["preview_asset"] = "preview/panorama.jpg"
+                    manifest["files"]["preview/panorama.jpg"] = hashlib.sha256(dest.read_bytes()).hexdigest()
+                tmp = manifest_path.with_suffix(".tmp")
+                tmp.write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
+                tmp.replace(manifest_path)
+                job.update(state="succeeded", asset_id=aid, revision=1, asset_status=manifest["status"], finished=_now())
+            else:
+                job["state"] = st["state"]
         except Exception as exc:
-            job.update(error=str(exc))
-        with self._lock:
-            self._save()
-        return job
+            job.update(state="retryable_error", error=str(exc))
+        finally:
+            with self._lock:
+                self._active.discard(jid)
+                self._commit(job)

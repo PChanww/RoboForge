@@ -4,10 +4,11 @@ import {
   ProjectsPage, LibraryPage, LibraryDetail, RobotEditPage, DatasetsPage, DatasetDetail,
   TrainingPage, JobDetail, EvaluationsPage, DeploymentsPage, SettingsPage, SceneEditPage,
 } from './components/pages'
+import { GenerationList, GenerationWorkbench, GenerationTaskDetail } from './components/Generation'
 import { cn } from './components/ui'
 
 const nav = [
-  ['/projects', '项目'], ['/library', '资产'], ['/datasets', '数据集'],
+  ['/projects', '项目'], ['/generation', '生成'], ['/library', '资产'], ['/datasets', '数据集'],
   ['/training', '训练'], ['/evaluations', '评测'], ['/deployments', '部署'], ['/settings', '设置'],
 ]
 
@@ -28,6 +29,9 @@ export default function App() {
           <Route path="/" element={<Navigate to="/projects/default/sim" replace />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:projectId/sim" element={<SimWorkspace />} />
+          <Route path="/generation" element={<GenerationList />} />
+          <Route path="/generation/:sessionId" element={<GenerationWorkbench />} />
+          <Route path="/generation/:sessionId/tasks/:jobId" element={<GenerationTaskDetail />} />
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/library/:assetId" element={<LibraryDetail />} />
           <Route path="/scenes/:sceneId/edit" element={<SceneEditPage />} />

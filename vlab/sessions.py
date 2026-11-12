@@ -28,6 +28,8 @@ class Session:
         self.epoch = 0
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"sim-{self.id[:6]}")
         self.env = self._executor.submit(PlatformEnv, config, lab_root, robot_id, controller_id).result()
+        self.env.session_id = self.id
+        self.epoch = self.env.epoch
 
     def submit(self, fn, *args, **kwargs):
         return self._executor.submit(fn, *args, **kwargs).result()
@@ -35,7 +37,7 @@ class Session:
     def reset(self, seed=None):
         def _run():
             obs = self.env.reset(seed)
-            self.epoch += 1
+            self.epoch = self.env.epoch  # env owns epoch; session mirrors it
             return {"observation": obs, "epoch": self.epoch}
         return self.submit(_run)
 

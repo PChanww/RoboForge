@@ -1,0 +1,1 @@
+"""Sensor rendering interfaces and snapshot capture (MVP uses MuJoCo renderer)."""

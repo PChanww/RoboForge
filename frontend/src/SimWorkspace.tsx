@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useParams } from 'react-router-dom'
 import { useStore } from './store'
 import Toolbar from './components/Toolbar'
 import TreePanel from './components/TreePanel'
@@ -27,6 +28,7 @@ function RobotSelect() {
 }
 
 export default function App() {
+  const { projectId = 'default' } = useParams()
   const init = useStore((s) => s.init)
   const error = useStore((s) => s.error)
   const busy = useStore((s) => s.busy)
@@ -39,7 +41,7 @@ export default function App() {
   const [dockH, setDockH] = useState(saved.current.dockH ?? 148)
   const drag = useRef<null | { kind: 'right' | 'dock' | 'left'; start: number; base: number }>(null)
 
-  useEffect(() => { init() }, [init])
+  useEffect(() => { init(projectId) }, [init, projectId])
   useEffect(() => {
     localStorage.setItem(LS_KEY, JSON.stringify({ leftOpen, rightOpen, dockOpen, leftW, rightW, dockH }))
   }, [leftOpen, rightOpen, dockOpen, leftW, rightW, dockH])

@@ -1,0 +1,16 @@
+{
+  "name": "roboforge-render-service",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Independent offscreen 3DGS (Spark) renderer for RoboForge sensor cameras",
+  "scripts": {
+    "install-browser": "playwright install chromium",
+    "render": "node render.mjs"
+  },
+  "dependencies": {
+    "@sparkjsdev/spark": "2.4.0",
+    "three": "0.180.0",
+    "playwright": "1.49.0"
+  }
+}

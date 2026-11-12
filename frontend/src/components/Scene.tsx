@@ -136,10 +136,27 @@ function Cameras() {
 
 function StaticScene() {
   const config = useStore((s) => s.config)
+  const showColliders = useView(s => s.colliders)
   const goal = config?.task.goal_xy ?? [0.133, 0.05]
+  const environment = config?.scene.environment
   return (
     <group>
-      <mesh position={[0, 0, -0.028]} receiveShadow><boxGeometry args={[0.64, 0.43, 0.056]} /><meshStandardMaterial color="#4a5c60" roughness={.8} /></mesh>
+      <mesh position={[0, 0, -0.061]}><planeGeometry args={[4, 4]} /><meshStandardMaterial color="#303b40" side={THREE.DoubleSide} /></mesh>
+      {config?.scene.use_default_table !== false && <mesh position={[0, 0, -0.028]} receiveShadow><boxGeometry args={[0.64, 0.43, 0.056]} /><meshStandardMaterial color="#4a5c60" roughness={.8} /></mesh>}
+      {environment && <group position={environment.position as [number, number, number]}
+        quaternion={environment.quaternion_xyzw as [number, number, number, number]} scale={environment.uniform_scale}>
+        <MeshPart url={`/api/v1/scene-assets/${encodeURIComponent(environment.asset_id)}/revisions/${environment.revision}/visual.obj`} color="#9ea8b2" />
+      </group>}
+      {(config?.scene.colliders || []).filter(c => c.enabled && (!environment || showColliders)).map(c => (
+        <group key={c.name} position={c.position as [number, number, number]} quaternion={c.quaternion_xyzw as [number, number, number, number]}>
+          <mesh rotation={c.shape === 'cylinder' ? [Math.PI / 2, 0, 0] : [0, 0, 0]}>
+            {c.shape === 'box' ? <boxGeometry args={c.full_size_m as [number, number, number]} /> :
+              c.shape === 'cylinder' ? <cylinderGeometry args={[c.full_size_m[0]/2, c.full_size_m[0]/2, c.full_size_m[2], 32]} /> :
+              <planeGeometry args={[c.full_size_m[0], c.full_size_m[1]]} />}
+            <meshStandardMaterial color={showColliders ? '#ff5577' : '#80909b'} wireframe={showColliders} transparent={showColliders} depthTest={!showColliders} opacity={showColliders ? .6 : 1} side={THREE.DoubleSide} />
+          </mesh>
+        </group>
+      ))}
       <mesh position={[goal[0], goal[1], 0.0045]}><boxGeometry args={[0.148, 0.138, 0.009]} /><meshStandardMaterial color="#a1b0a7" roughness={.7} /></mesh>
     </group>
   )

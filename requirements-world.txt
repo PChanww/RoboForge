@@ -1,0 +1,2 @@
+# Optional World generation/reconstruction adapter, verified with this SDK.
+manycore-aholo-sdk-world==1.4.0

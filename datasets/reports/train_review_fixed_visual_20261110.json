@@ -1,0 +1,11 @@
+{
+ "type": "visual BC (image+state, no object pose)",
+ "frames": 1952,
+ "train_frames": 1394,
+ "optimizer_steps": 22,
+ "val_mse": 0.17637,
+ "gen_mse": 0.17616,
+ "reload_max_abs_diff": 0.0,
+ "dataset": "review_fixed_data_20261110",
+ "checkpoint": "/mnt/c/Users/31295/Documents/Codex/2026-11-09/https-www-aholo3d-cn-hackathon-utm/outputs/vla-lab/datasets/models/review_fixed_visual_20261110.pt"
+}

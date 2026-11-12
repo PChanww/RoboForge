@@ -1,4 +1,4 @@
-"""Single source of truth for scene/asset/camera coordinate transforms.
+"""Scene/asset coordinate transforms (sensor cameras are built through MJCF).
 
 World is metres, right-handed Z-up (MuJoCo). External quaternions are xyzw;
 MuJoCo expects wxyz (conversion explicit here). Layered transform:
@@ -51,12 +51,12 @@ def mat_to_pos_quat_xyzw(T):
     else:
         i = int(np.argmax([R[0, 0], R[1, 1], R[2, 2]]))
         if i == 0:
-            t = np.sqrt(1 + R[0, 0] - R[1, 1] - R[2, 2])
+            t = 2 * np.sqrt(1 + R[0, 0] - R[1, 1] - R[2, 2])
             x, y, z, w = t / 4, (R[0, 1] + R[1, 0]) / t, (R[0, 2] + R[2, 0]) / t, (R[2, 1] - R[1, 2]) / t
         elif i == 1:
-            t = np.sqrt(1 + R[1, 1] - R[0, 0] - R[2, 2])
+            t = 2 * np.sqrt(1 + R[1, 1] - R[0, 0] - R[2, 2])
             x, y, z, w = (R[0, 1] + R[1, 0]) / t, t / 4, (R[1, 2] + R[2, 1]) / t, (R[0, 2] - R[2, 0]) / t
         else:
-            t = np.sqrt(1 + R[2, 2] - R[0, 0] - R[1, 1])
+            t = 2 * np.sqrt(1 + R[2, 2] - R[0, 0] - R[1, 1])
             x, y, z, w = (R[0, 2] + R[2, 0]) / t, (R[1, 2] + R[2, 1]) / t, t / 4, (R[1, 0] - R[0, 1]) / t
     return T[:3, 3].tolist(), [float(x), float(y), float(z), float(w)], float(s)

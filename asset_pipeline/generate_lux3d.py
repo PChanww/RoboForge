@@ -6,37 +6,12 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from urllib.parse import urlsplit
-from urllib.request import urlopen
 
-from import_asset import MAX_FILE, check_scale, output_path, register
+from import_asset import MAX_FILE, check_scale, download_mesh, output_path, register
 
 PROMPT = ("A single upright handleless ceramic tumbler, straight cylindrical sides, an open circular "
           "rim, flat base, matte ivory glaze. Height 9 cm, outside diameter 6 cm. "
           "Isolated object, no saucer, no table, no liquid, no text.")
-
-
-def download_mesh(outputs, directory):
-    urls = [s["content"] for s in outputs if isinstance(s.get("content"), str)
-            and urlsplit(s["content"]).scheme == "https"]
-    # URLs can be signed; check file signatures instead of trusting extensions.
-    for url in sorted(urls, key=lambda u: not urlsplit(u).path.lower().endswith(".glb")):
-        with urlopen(url, timeout=90) as response:
-            header = response.read(4)
-            if header == b"glTF":
-                path = directory / "result.glb"
-            elif header == b"PK\x03\x04":
-                path = directory / "result.zip"
-            else:
-                continue
-            with path.open("wb") as dest:
-                dest.write(header)
-                while chunk := response.read(1024 * 1024):
-                    if dest.tell() + len(chunk) > MAX_FILE:
-                        raise ValueError("Generated mesh exceeds 256 MiB.")
-                    dest.write(chunk)
-            return path
-    raise ValueError("Provider returned no GLB/ZIP mesh. Check the task's available exports.")
 
 
 def main():
@@ -47,8 +22,14 @@ def main():
     p.add_argument("--height-m", type=float, default=0.09)
     p.add_argument("--radius-m", type=float, default=None)
     p.add_argument("--mass-kg", type=float, default=0.12)
+    p.add_argument("--kind", choices=["task_object", "static_prop", "robot_visual"],
+                   help="Generic asset kind; when set, uses the generic importer (box/cylinder proxy by spec).")
+    p.add_argument("--role", choices=["visual_only", "static", "dynamic"], default="dynamic")
+    p.add_argument("--width-m", type=float, default=None)
+    p.add_argument("--depth-m", type=float, default=None)
     a = p.parse_args()
-    check_scale(a.height_m, a.radius_m, a.mass_kg)
+    if not a.kind:
+        check_scale(a.height_m, a.radius_m, a.mass_kg)
     out = output_path(a.slug)
     if out.exists():
         p.exit(1, f"Already registered: {out}. Use a different slug.\n")
@@ -75,6 +56,8 @@ def main():
         if (a.task_id and str(job["task_id"]) != a.task_id) or (a.prompt and job["prompt"] != a.prompt):
             p.exit(1, "Slug already has a different task or prompt. Use a new slug.\n")
     else:
+        if a.kind and not a.prompt and not a.task_id:
+            p.exit(1, "Generic --kind requires an explicit --prompt (no cup default).\n")
         prompt = a.prompt if a.task_id else a.prompt or PROMPT
         job = {"task_id": a.task_id, "prompt": prompt}
         # Save intent first, so a retry after network failure doesn't create another billable task.
@@ -92,9 +75,16 @@ def main():
     result = client.tasks.wait_for(job["task_id"], interval_ms=10000, timeout_ms=900000)
     with tempfile.TemporaryDirectory() as tmp:
         file = download_mesh(result["outputs"], Path(tmp))
-        print(register(file, out, height=a.height_m, radius=a.radius_m, mass=a.mass_kg, source="lux3d",
-                       source_detail="downloaded from authenticated Aholo API task",
-                       task_id=job["task_id"], prompt=job["prompt"]))
+        if a.kind:
+            from import_object import register_object
+            print(register_object(file, out, kind=a.kind, role=a.role, height=a.height_m,
+                                  width=a.width_m, depth=a.depth_m, radius=a.radius_m, mass=a.mass_kg,
+                                  source="lux3d", source_detail="downloaded from authenticated Aholo API task",
+                                  task_id=job["task_id"], prompt=job["prompt"]))
+        else:
+            print(register(file, out, height=a.height_m, radius=a.radius_m, mass=a.mass_kg, source="lux3d",
+                           source_detail="downloaded from authenticated Aholo API task",
+                           task_id=job["task_id"], prompt=job["prompt"]))
 
 
 if __name__ == "__main__":
