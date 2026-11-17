@@ -71,6 +71,8 @@ export const api = {
     req<any>('GET', `/api/v1/deployments/${name}/compat?robot_id=${robotId}&project=${project}`),
   // generation loop (round 4)
   genCapabilities: () => req<any>('GET', '/api/v1/generation/capabilities'),
+  genRemoteTasks: (provider = 'lux3d', page = 1, pageSize = 20) =>
+    req<any>('GET', `/api/v1/generation/remote-tasks?provider=${encodeURIComponent(provider)}&page=${page}&page_size=${pageSize}`),
   genSessions: () => req<{ sessions: any[] }>('GET', '/api/v1/generation/sessions'),
   genSession: (id: string) => req<any>('GET', `/api/v1/generation/sessions/${id}`),
   genCreateSession: (body: any) => req<any>('POST', '/api/v1/generation/sessions', body),
@@ -88,7 +90,19 @@ export const api = {
     req<any>('POST', `/api/v1/generation/sessions/${id}/tasks/${jobId}/poll`, {}),
   genRetryNode: (id: string, jobId: string, node: string) =>
     req<any>('POST', `/api/v1/generation/sessions/${id}/tasks/${jobId}/retry`, { node }),
+  genRecoverTask: (id: string, jobId: string, remote_id: string, provider?: string) =>
+    req<any>('POST', `/api/v1/generation/sessions/${id}/tasks/${jobId}/recover`, { remote_id, provider }),
+  genImportRemote: (id: string, body: { remote_id: string; provider?: string; client_request_id?: string; expected_revision?: number }) =>
+    req<any>('POST', `/api/v1/generation/sessions/${id}/import-remote`, body),
   recipeValidate: (id: string, projectId = 'default') => req<any>('POST', `/api/v1/scene-recipes/${id}/validate?project_id=${projectId}`, {}),
   recipeApply: (id: string, body: any) => req<any>('POST', `/api/v1/scene-recipes/${id}/apply`, body),
   recipeFromSession: (id: string, body: any) => req<any>('POST', `/api/v1/generation/sessions/${id}/recipe`, body),
+  partSplitAsset: (slug: string, body: { segments?: number; axis?: string; remote?: boolean } = {}) =>
+    req<any>('POST', `/api/v1/assets/${encodeURIComponent(slug)}/part-split`, body),
+  assembleRobotParts: (body: { project_id?: string; robot_id: string; parts_slug: string; mapping: Record<string, string>; replace_primary?: boolean }) =>
+    req<any>('POST', '/api/v1/robots/assemble-parts', body),
+  robotUrdfUrl: (projectId = 'default', robotId?: string) =>
+    `/api/v1/projects/${encodeURIComponent(projectId)}/robot.urdf${robotId ? `?robot_id=${encodeURIComponent(robotId)}` : ''}`,
+  setupHackathonDemo: (body: { project_id?: string; with_world_background?: boolean; support_plane_z?: number } = {}) =>
+    req<any>('POST', '/api/v1/hackathon-demo/setup', body),
 }

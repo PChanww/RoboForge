@@ -1,0 +1,200 @@
+{
+  "obj": "visual.obj",
+  "kind": "static_prop",
+  "role": "static",
+  "height_m": 0.022,
+  "width_m": 0.2,
+  "depth_m": 0.15,
+  "radius_m": null,
+  "mass_kg": 0.45,
+  "friction": null,
+  "bounds_m": [
+    [
+      -0.1,
+      -0.075,
+      0.0
+    ],
+    [
+      0.1,
+      0.075,
+      0.022
+    ]
+  ],
+  "actual_extents_m": [
+    0.2,
+    0.15,
+    0.022
+  ],
+  "up_axis": "Z",
+  "triangles": 60,
+  "collision_proxy": {
+    "shape": "box",
+    "size_m": [
+      0.2,
+      0.15,
+      0.022
+    ],
+    "position": [
+      0,
+      0,
+      0.011
+    ],
+    "basis": "user_explicit"
+  },
+  "collision_proxy_desc": "concave compound (5 boxes, fill_ratio=0.6354); preserves hollow/rim contacts",
+  "compound_proxy": {
+    "shape": "compound",
+    "boxes": [
+      {
+        "shape": "box",
+        "size_m": [
+          0.2,
+          0.15,
+          0.011
+        ],
+        "position": [
+          0.0,
+          0.0,
+          0.0055
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      {
+        "shape": "box",
+        "size_m": [
+          0.2,
+          0.012499999999999999,
+          0.011
+        ],
+        "position": [
+          0.0,
+          -0.06874999999999999,
+          0.0165
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      {
+        "shape": "box",
+        "size_m": [
+          0.1875,
+          0.012499999999999999,
+          0.011
+        ],
+        "position": [
+          0.0062500000000000056,
+          0.06874999999999999,
+          0.0165
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      {
+        "shape": "box",
+        "size_m": [
+          0.0125,
+          0.13749999999999998,
+          0.011
+        ],
+        "position": [
+          -0.09375,
+          0.006249999999999992,
+          0.0165
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      {
+        "shape": "box",
+        "size_m": [
+          0.0125,
+          0.12499999999999999,
+          0.011
+        ],
+        "position": [
+          0.09375,
+          0.0,
+          0.0165
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      }
+    ],
+    "box_count": 5,
+    "fill_ratio": 0.6354,
+    "concave_detected": true,
+    "grid_shape": [
+      16,
+      12,
+      4
+    ],
+    "floor_box_index": 0,
+    "basis": "voxel_box_decomposition"
+  },
+  "concave_detected": true,
+  "collision_mode": "compound",
+  "calibrated": true,
+  "physics_status": "proxy_estimate",
+  "scale_mode": "bbox_anisotropic",
+  "scale_factors": [
+    0.999999985098839,
+    0.9999999602635717,
+    1.000000005418604
+  ],
+  "unsatisfied_dimensions": {},
+  "scale_basis": "anisotropic bbox scaling to user-specified dimensions",
+  "normalization": {
+    "source_up_axis": "y",
+    "scaled_to_height_m": 0.022,
+    "scale_mode": "bbox_anisotropic",
+    "scale_factors": [
+      0.999999985098839,
+      0.9999999602635717,
+      1.000000005418604
+    ],
+    "centered_footprint": true,
+    "original_extents_m": [
+      0.20000000298023224,
+      0.15000000596046448,
+      0.02199999988079071
+    ]
+  },
+  "source": "other",
+  "source_detail": "RoboForge concave compound demo tray",
+  "generation_id": null,
+  "prompt": "Open ceramic sorting tray 20x15x2.2 cm with recessed cavity and raised rim",
+  "source_mesh": "original.glb",
+  "sha256_glb": "b1d24f56d0c57b3e38edfa60129b18e66ebcf19f0b7647e843197840921537e9",
+  "spec_id": null,
+  "spec_revision": null,
+  "spec_hash": null,
+  "compiler_version": null,
+  "job_id": null,
+  "color_rgb": [
+    0.8823529411764706,
+    0.8627450980392157,
+    0.8235294117647058
+  ],
+  "color_basis": "area-weighted mean of material or indexed vertex colors; uniform simulator tint"
+}

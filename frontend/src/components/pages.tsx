@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { Button, Section } from './ui'
 import SceneCanvas from './SceneCanvas'
@@ -43,10 +43,40 @@ export function JobsTable({ filter }: { filter?: string }) {
 }
 
 export function ProjectsPage() {
-  const { data } = useFetch(() => api.projects(), [])
+  const nav = useNavigate()
+  const { data, reload } = useFetch(() => api.projects(), [])
+  const [busy, setBusy] = useState(false)
+  const [demoMsg, setDemoMsg] = useState('')
+  const launchDemo = async (withWorld: boolean) => {
+    setBusy(true); setDemoMsg('')
+    try {
+      const r = await api.setupHackathonDemo({ project_id: 'hackathon_demo', with_world_background: withWorld })
+      reload()
+      nav(`/projects/${r.project_id}/sim`)
+    } catch (e: any) {
+      setDemoMsg(e.message || 'Demo 加载失败')
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <div className="p-4">
       <h2 className="text-lg text-ink mb-3">项目中心</h2>
+      <div className="border border-accent/40 rounded p-3 bg-panel2 mb-4">
+        <div className="text-sm text-accent font-medium mb-1">Aholo x RoboForge 黑客松旗舰演示</div>
+        <div className="text-xs text-muted mb-2">
+          一键装配：5 盒体素凹面分解托盘（真实内腔底面+四壁碰撞）+ 多动态自由刚体（Aholo Lux3D 陶瓷杯 + 伴随木块）+ 参数化支持面 + 标准 URDF 导出。
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <Button size="sm" disabled={busy} onClick={() => launchDemo(false)}>
+            {busy ? '装配并校验中…' : '一键进入物理复合 Demo (hackathon_demo)'}
+          </Button>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => launchDemo(true)}>
+            加载 Aholo World 高斯融合版
+          </Button>
+        </div>
+        {demoMsg && <div className="text-xs text-red-400 mt-1">{demoMsg}</div>}
+      </div>
       <div className="grid grid-cols-2 gap-3">
         {(data?.projects || []).map((p) => (
           <div key={p.id} className="border border-edge rounded p-3 bg-panel2">
@@ -212,6 +242,7 @@ function SceneCanvasPanel({ project, assetId, revision, asset, onMsg }:
   const { data, reload } = useFetch<any>(() => api.getScene(project), [project])
   const [inst, setInst] = useState<any>({ position: [0, 0, 0], quaternion_xyzw: [0, 0, 0, 1], uniform_scale: 1 })
   const [cols, setCols] = useState<any[]>([])
+  const [nodes, setNodes] = useState<any[]>([])
   const [sel, setSel] = useState<any>(null)
   const [grid, setGrid] = useState(true)
   const [dirty, setDirty] = useState(false)
@@ -225,7 +256,7 @@ function SceneCanvasPanel({ project, assetId, revision, asset, onMsg }:
     if (data) {
       const e = data.environment
       setInst({ position: e?.position ?? [0, 0, 0], quaternion_xyzw: e?.quaternion_xyzw ?? [0, 0, 0, 1], uniform_scale: e?.uniform_scale ?? 1 })
-      setCols(data.colliders || []); setVer(data.version ?? 0); setDirty(false); setUndo([]); setRedo([])
+      setCols(data.colliders || []); setNodes(data.asset_nodes || []); setVer(data.version ?? 0); setDirty(false); setUndo([]); setRedo([])
     }
   }, [data])
   const snapshot = () => { setUndo((u) => [...u.slice(-49), { inst, cols }]); setRedo([]) }
@@ -244,14 +275,14 @@ function SceneCanvasPanel({ project, assetId, revision, asset, onMsg }:
     onMsg(`按已知距离缩放 ×${f.toFixed(3)}（测量 ${measured.toFixed(4)} → ${known}）`)
   }
   const saveAll = async () => {
-    if (!data?.environment) return
+    if (!data?.environment && !cols.length && !nodes.length) return
     try {
       const r = await api.commitScene(project, {
-        environment: { ...data.environment, position: inst.position, quaternion_xyzw: inst.quaternion_xyzw, uniform_scale: inst.uniform_scale },
-        colliders: cols, use_default_table: data.use_default_table, work_surface_z: data.work_surface_z,
+        environment: data?.environment ? { ...data.environment, position: inst.position, quaternion_xyzw: inst.quaternion_xyzw, uniform_scale: inst.uniform_scale } : null,
+        colliders: cols, asset_nodes: nodes, use_default_table: data?.use_default_table, work_surface_z: data?.work_surface_z,
         expected_version: ver,
       })
-      setVer(r.version); onMsg(`已原子保存场景实例与 ${r.colliders.length} 个碰撞代理 → v${r.version}`); setDirty(false); reload()
+      setVer(r.version); onMsg(`已原子保存场景实例、${(r.asset_nodes || []).length} 个资产节点与 ${r.colliders.length} 个碰撞代理 → v${r.version}`); setDirty(false); reload()
     } catch (e: any) {
       onMsg(`保存失败: ${e.message}${String(e.message).includes('409') ? '（其他页面已更新，请放弃本地修改后重试）' : ''}`)
     }
@@ -267,12 +298,12 @@ function SceneCanvasPanel({ project, assetId, revision, asset, onMsg }:
         <Button size="sm" variant="outline" onClick={doUndo} disabled={!undo.length}>撤销</Button>
         <Button size="sm" variant="outline" onClick={doRedo} disabled={!redo.length}>重做</Button>
         <Button size="sm" variant="outline" onClick={dirtyRef}>放弃修改</Button>
-        <Button size="sm" onClick={saveAll} disabled={!data?.environment}>保存</Button>
+        <Button size="sm" onClick={saveAll} disabled={!data?.environment && !cols.length && !nodes.length}>保存</Button>
       </div>
-      {!data?.environment && <div className="text-xs text-muted mb-2">该项目尚未绑定场景；先在下方绑定。</div>}
+      {!data?.environment && !nodes.length && <div className="text-xs text-muted mb-2">该项目尚未绑定场景；先在下方绑定或应用配方。</div>}
       {asset && !asset.visual_asset && <div className="text-xs text-yellow-300 mb-2">
         该资产为高斯/点云（无 MJCF 网格视觉）：画布仅显示全景预览；渲染由 hybrid 管线负责。</div>}
-      {assetUrl ? <SceneCanvas assetUrl={assetUrl} inst={inst} cols={cols} selected={sel}
+      {(assetUrl || nodes.length > 0) ? <SceneCanvas assetUrl={assetUrl} inst={inst} cols={cols} assetNodes={nodes} selected={sel}
         onSelect={setSel} onMove={moveCol} onInstanceMove={moveInst} showGrid={grid} /> :
         asset?.preview_asset ? <img alt="场景全景预览" className="w-full max-h-72 object-contain bg-panel2 rounded" src={`/api/v1/scene-assets/${encodeURIComponent(assetId || '')}/revisions/${revision ?? asset?.revision ?? 1}/preview`} /> : null}
       <div className="text-[11px] text-muted mt-1">点击物体/线框选中；拖动 gizmo 平移并回写数值；碰撞为线框，视觉与同一坐标。</div>
@@ -435,6 +466,8 @@ export function RobotEditPage() {
         </label>
         <Button size="sm" variant="outline" onClick={validate}>校验</Button>
         <Button size="sm" disabled={busy} onClick={save}>保存新版本</Button>
+        <a className="text-xs text-accent border border-edge rounded px-2 py-1 hover:bg-panel"
+          href={api.robotUrdfUrl(project, robot)} download={`${project}-${robot}.urdf`}>导出 URDF</a>
       </div>
       <div className="flex gap-2 mb-2 text-xs">
         {robots.map((x: any) => (

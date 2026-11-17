@@ -1,0 +1,91 @@
+{
+  "obj": "visual.obj",
+  "kind": "task_object",
+  "role": "dynamic",
+  "height_m": 0.036,
+  "width_m": 0.036,
+  "depth_m": 0.036,
+  "radius_m": null,
+  "mass_kg": 0.06,
+  "friction": null,
+  "bounds_m": [
+    [
+      -0.018000000000000002,
+      -0.018000000000000002,
+      0.0
+    ],
+    [
+      0.018000000000000002,
+      0.018000000000000002,
+      0.036000000000000004
+    ]
+  ],
+  "actual_extents_m": [
+    0.036000000000000004,
+    0.036000000000000004,
+    0.036000000000000004
+  ],
+  "up_axis": "Z",
+  "triangles": 12,
+  "collision_proxy": {
+    "shape": "box",
+    "size_m": [
+      0.036000000000000004,
+      0.036000000000000004,
+      0.036000000000000004
+    ],
+    "position": [
+      0,
+      0,
+      0.018000000000000002
+    ],
+    "basis": "user_explicit"
+  },
+  "collision_proxy_desc": "axis-aligned box from mesh extents; no concave/interior contacts",
+  "compound_proxy": null,
+  "concave_detected": false,
+  "collision_mode": "auto",
+  "calibrated": true,
+  "physics_status": "proxy_estimate",
+  "scale_mode": "bbox_anisotropic",
+  "scale_factors": [
+    1.0000000430478009,
+    1.0000000430478009,
+    1.0000000430478009
+  ],
+  "unsatisfied_dimensions": {},
+  "scale_basis": "anisotropic bbox scaling to user-specified dimensions",
+  "normalization": {
+    "source_up_axis": "y",
+    "scaled_to_height_m": 0.036,
+    "scale_mode": "bbox_anisotropic",
+    "scale_factors": [
+      1.0000000430478009,
+      1.0000000430478009,
+      1.0000000430478009
+    ],
+    "centered_footprint": true,
+    "original_extents_m": [
+      0.035999998450279236,
+      0.035999998450279236,
+      0.035999998450279236
+    ]
+  },
+  "source": "other",
+  "source_detail": "RoboForge dynamic desktop companion block",
+  "generation_id": null,
+  "prompt": "Orange wooden calibration cube 3.6 cm",
+  "source_mesh": "original.glb",
+  "sha256_glb": "fdb011574f1c2565874ebf2b680a68507b7d71467e12fa0c1097fcf8461a9ff9",
+  "spec_id": null,
+  "spec_revision": null,
+  "spec_hash": null,
+  "compiler_version": null,
+  "job_id": null,
+  "color_rgb": [
+    0.9215686274509803,
+    0.5098039215686274,
+    0.19607843137254902
+  ],
+  "color_basis": "area-weighted mean of material or indexed vertex colors; uniform simulator tint"
+}

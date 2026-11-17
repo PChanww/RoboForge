@@ -123,9 +123,24 @@ class CollidersBody(BaseModel):
 class SceneCommitBody(BaseModel):
     environment: dict | None = None
     colliders: list[dict] = []
+    asset_nodes: list[dict] | None = None
     use_default_table: bool | None = None
     work_surface_z: float | None = None
     expected_version: int
+
+
+class AssemblePartsBody(BaseModel):
+    project_id: str = "default"
+    robot_id: str = "assembled_5r"
+    parts_slug: str
+    mapping: dict[str, str]
+    replace_primary: bool = True
+
+
+class DemoSetupBody(BaseModel):
+    project_id: str = "hackathon_demo"
+    with_world_background: bool = False
+    support_plane_z: float = 0.0
 
 
 def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
@@ -193,6 +208,15 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         except Exception as exc:
             raise HTTPException(400, f"unknown asset {asset}: {exc}")
         return Response(mesh, media_type="text/plain")
+
+    @app.get("/api/v1/asset-mesh")
+    def asset_mesh(ref: str):
+        from .scene_builder import resolve_asset_node
+        try:
+            resolved = resolve_asset_node(lab_root, ref)
+        except Exception as exc:
+            raise HTTPException(404, f"unknown asset mesh {ref}: {exc}")
+        return Response(resolved["mesh_bytes"], media_type="text/plain")
 
     @app.exception_handler(sess_mod.ControlConflict)
     async def _conflict(_req, exc):
@@ -510,8 +534,13 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
                 if mf.is_file():
                     m = json.loads(mf.read_text(encoding="utf-8"))
                     items.append({"id": f"imported/{d.name}", "name": d.name, "category": "object",
+                                  "kind": m.get("kind", "task_object"), "role": m.get("role", "dynamic"),
+                                  "calibrated": m.get("calibrated", True),
                                   "source": m.get("source"), "generation_id": m.get("generation_id"),
-                                  "height_m": m.get("height_m")})
+                                  "height_m": m.get("height_m"), "width_m": m.get("width_m"),
+                                  "depth_m": m.get("depth_m"), "collision_proxy": m.get("collision_proxy"),
+                                  "concave_detected": bool(m.get("concave_detected")),
+                                  "compound_boxes": (m.get("compound_proxy") or {}).get("box_count")})
         rob = lab_root / "assets" / "robot"
         if rob.is_dir():
             items.append({"id": "robot/lux3d", "name": "lux3d 机械臂外观", "category": "robot",
@@ -637,6 +666,8 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         def mutate(data):
             data["scene"]["environment"] = body.environment
             data["scene"]["colliders"] = body.colliders
+            if body.asset_nodes is not None:
+                data["scene"]["asset_nodes"] = body.asset_nodes
             if body.use_default_table is not None:
                 data["scene"]["use_default_table"] = body.use_default_table
             if body.work_surface_z is not None:
@@ -645,6 +676,7 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         return {"version": saved.version,
                 "environment": saved.scene.environment.model_dump() if saved.scene.environment else None,
                 "colliders": [c.model_dump() for c in saved.scene.colliders],
+                "asset_nodes": [n.model_dump() for n in saved.scene.asset_nodes],
                 "use_default_table": saved.scene.use_default_table,
                 "work_surface_z": saved.scene.work_surface_z}
 
@@ -668,6 +700,7 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         cfg = store.load(pid) if store.exists(pid) else store.load("default")
         return {"environment": cfg.scene.environment.model_dump() if cfg.scene.environment else None,
                 "colliders": [c.model_dump() for c in cfg.scene.colliders],
+                "asset_nodes": [n.model_dump() for n in cfg.scene.asset_nodes],
                 "use_default_table": cfg.scene.use_default_table,
                 "work_surface_z": cfg.scene.work_surface_z, "version": cfg.version}
 
@@ -768,6 +801,61 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         if not j:
             raise HTTPException(404, "unknown generation job")
         return j
+
+    @app.get("/api/v1/projects/{pid}/robot.urdf")
+    def export_robot_urdf(pid: str, robot_id: str | None = None):
+        from .robot_builder import robot_to_urdf
+        try:
+            valid_id(pid)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        cfg = store.load(pid) if store.exists(pid) else store.load("default")
+        r = cfg.robots[0] if robot_id is None else next((x for x in cfg.robots if x.id == robot_id), None)
+        if r is None:
+            raise HTTPException(404, f"unknown robot {robot_id!r}")
+        urdf = robot_to_urdf(r, mesh_uri_prefix=r.mesh_dir)
+        return Response(urdf, media_type="application/xml",
+                        headers={"Content-Disposition": f'attachment; filename="{pid}-{r.id}.urdf"'})
+
+    @app.post("/api/v1/robots/assemble-parts")
+    def assemble_robot_parts_ep(body: AssemblePartsBody):
+        from .robot_builder import assemble_robot_from_parts
+        try:
+            valid_id(body.project_id)
+            slug = valid_id(body.parts_slug)
+            parts_root = (lab_root / "assets" / "imported" / slug / "parts").resolve()
+            if not parts_root.is_dir():
+                raise HTTPException(404, f"parts directory missing for {slug!r}; run part-split first")
+            resolved_parts = {slot: contained_file(parts_root, rel) for slot, rel in body.mapping.items()}
+            cfg = store.load(body.project_id) if store.exists(body.project_id) else store.load("default")
+            base_robot = cfg.robots[0]
+            new_robot = assemble_robot_from_parts(base_robot, resolved_parts, lab_root, body.robot_id)
+            updated_robots = ([new_robot] if body.replace_primary
+                              else [*[r for r in cfg.robots if r.id != new_robot.id], new_robot])
+            candidate = cfg.model_copy(update={"project_id": body.project_id, "robots": updated_robots, "validation_status": "candidate"})
+            issues = validate_config(candidate, lab_root)
+            if issues:
+                raise HTTPException(400, {"issues": issues})
+            saved = store.save(candidate.model_copy(update={"validation_status": "validated"}))
+            return {"project_id": saved.project_id, "version": saved.version, "robot": new_robot.model_dump()}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/v1/hackathon-demo/setup")
+    def hackathon_demo_setup(body: DemoSetupBody):
+        from .hackathon_demo import setup_hackathon_demo
+        try:
+            valid_id(body.project_id)
+            return setup_hackathon_demo(
+                lab_root, store,
+                project_id=body.project_id,
+                with_world_background=body.with_world_background,
+                support_plane_z=body.support_plane_z,
+            )
+        except Exception as exc:
+            raise HTTPException(400, str(exc))
 
     @app.on_event("shutdown")
     def _shutdown():

@@ -17,6 +17,9 @@ deploy/
 *.log
 
 # Local environment
+.env
+.env.*
+!.env.example
 .venv/
 work/
 

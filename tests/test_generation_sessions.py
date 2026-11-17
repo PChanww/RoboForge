@@ -29,8 +29,8 @@ def test_capabilities_and_waiting_for_configuration(tmp_path, monkeypatch):
         cap = c.get("/api/v1/generation/capabilities").json()
         assert cap["aux_model"]["state"] == "waiting_for_configuration"
         assert cap["providers"]["local_import"]["configured"] is True
-        assert cap["asset_kinds"]["environment_mesh"]["online"] is None
-        assert cap["physics_limits"]["convex_decomposition"] is False
+        assert cap["asset_kinds"]["environment_mesh"]["online"] == "lux3d"
+        assert cap["physics_limits"]["convex_decomposition"] == "voxel_box_compound"
         s = c.post("/api/v1/generation/sessions", json={"initial_text": "一个杯子"}).json()
         sid, rev = s["session_id"], s["revision"]
         r = c.post(f"/api/v1/generation/sessions/{sid}/messages",

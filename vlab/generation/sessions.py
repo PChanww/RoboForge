@@ -15,13 +15,19 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .schema import GenerationSession, SessionState
+from pydantic import ValidationError
+
+from .schema import AssetSpec, ChatMessage, GenerationSession, PhysicsSpec, SessionState
 
 
 class RevisionConflict(Exception):
     def __init__(self, expected: int, current: int):
         self.expected, self.current = expected, current
         super().__init__(f"revision conflict: expected {expected}, current {current}")
+
+
+class SessionDataError(ValueError):
+    pass
 
 
 def _now() -> str:
@@ -38,12 +44,21 @@ class SessionStore:
         self.root.mkdir(parents=True, exist_ok=True)
         self.path = self.root / "sessions.db"
         self._lock = threading.RLock()
+        self._session_locks: dict[str, threading.RLock] = {}
         with self._conn_ctx() as c:
             c.execute("PRAGMA journal_mode=WAL")
             c.execute("""CREATE TABLE IF NOT EXISTS sessions(
                 session_id TEXT PRIMARY KEY, revision INTEGER NOT NULL,
                 state TEXT NOT NULL, data TEXT NOT NULL,
                 created TEXT NOT NULL, updated TEXT NOT NULL)""")
+
+    def session_lock(self, sid: str) -> threading.RLock:
+        with self._lock:
+            lk = self._session_locks.get(sid)
+            if lk is None:
+                lk = threading.RLock()
+                self._session_locks[sid] = lk
+            return lk
 
     def _conn(self):
         return sqlite3.connect(self.path, timeout=30)
@@ -58,20 +73,67 @@ class SessionStore:
             conn.close()
 
     def create(self, project_id: str | None = None, capability_snapshot: dict | None = None,
-               aux_state: str = "waiting_for_configuration") -> GenerationSession:
+               aux_state: str = "waiting_for_configuration",
+               asset_spec: AssetSpec | None = None,
+               physics_spec: PhysicsSpec | None = None,
+               messages: list[ChatMessage] | None = None) -> GenerationSession:
         now = _now()
-        s = GenerationSession(session_id=new_id("gs"), created=now, updated=now,
-                              project_id=project_id, capability_snapshot=capability_snapshot or {},
-                              aux_state=aux_state)
+        s = GenerationSession(
+            session_id=new_id("gs"), created=now, updated=now,
+            project_id=project_id, capability_snapshot=capability_snapshot or {},
+            aux_state=aux_state,
+            asset_spec=asset_spec if asset_spec is not None else AssetSpec(),
+            physics_spec=physics_spec if physics_spec is not None else PhysicsSpec(),
+            messages=list(messages or []),
+        )
         with self._lock, self._conn_ctx() as c:
             c.execute("INSERT INTO sessions VALUES(?,?,?,?,?,?)",
                       (s.session_id, s.revision, s.state.value, s.model_dump_json(), now, now))
         return s
 
+    @staticmethod
+    def _repair_legacy_payload(raw_json: str) -> GenerationSession | None:
+        try:
+            data = json.loads(raw_json)
+        except Exception:
+            return None
+        spec = data.get("asset_spec")
+        if not isinstance(spec, dict):
+            return None
+        kind = spec.get("kind")
+        role = spec.get("role")
+        role_prov = (spec.get("provenance") or {}).get("role") or {}
+        if role_prov.get("source") == "user_explicit":
+            return None
+        changed = False
+        if kind == "environment_splat" and role != "visual_only":
+            spec["role"] = "visual_only"
+            changed = True
+        elif kind == "robot_visual" and role == "dynamic":
+            spec["role"] = "visual_only"
+            changed = True
+        if not changed:
+            return None
+        phys = data.get("physics_spec")
+        if isinstance(phys, dict):
+            phys["role"] = spec["role"]
+        try:
+            return GenerationSession.model_validate(data)
+        except ValidationError:
+            return None
+
     def get(self, sid: str) -> GenerationSession | None:
         with self._lock, self._conn_ctx() as c:
             row = c.execute("SELECT data FROM sessions WHERE session_id=?", (sid,)).fetchone()
-        return GenerationSession.model_validate_json(row[0]) if row else None
+        if not row:
+            return None
+        try:
+            return GenerationSession.model_validate_json(row[0])
+        except ValidationError as exc:
+            repaired = self._repair_legacy_payload(row[0])
+            if repaired is not None:
+                return repaired
+            raise SessionDataError(f"session {sid} stored data is invalid: {exc}") from exc
 
     def list(self) -> list[dict]:
         with self._lock, self._conn_ctx() as c:

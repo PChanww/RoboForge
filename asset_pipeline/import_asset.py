@@ -21,8 +21,14 @@ REGISTRY = Path(__file__).resolve().parents[1] / "assets" / "imported"
 MAX_FILE = 256 * 1024**2
 
 
+def validate_mesh_file(path: Path) -> None:
+    """Verify a downloaded .glb or .zip contains a structurally valid glTF2 triangle mesh."""
+    data = read_glb(path)
+    parse_geometry(data)
+
+
 def download_mesh(outputs, directory):
-    """Download the first GLB/ZIP mesh from provider outputs, validating by magic bytes."""
+    """Download the first GLB/ZIP mesh from provider outputs atomically via .part after validation."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     urls = [s["content"] for s in outputs if isinstance(s.get("content"), str)
@@ -37,14 +43,44 @@ def download_mesh(outputs, directory):
                 path = directory / "result.zip"
             else:
                 continue
-            with path.open("wb") as dest:
-                dest.write(header)
-                while chunk := response.read(1024 * 1024):
-                    if dest.tell() + len(chunk) > MAX_FILE:
-                        raise ValueError("Generated mesh exceeds 256 MiB.")
-                    dest.write(chunk)
+            expected_len_raw = response.headers.get("Content-Length") if response.headers else None
+            expected_len = int(expected_len_raw) if expected_len_raw and expected_len_raw.isdigit() else None
+            partial = path.with_suffix(path.suffix + f".{uuid_hex()}.part")
+            written = 0
+            try:
+                with partial.open("wb") as dest:
+                    dest.write(header)
+                    written += len(header)
+                    while chunk := response.read(1024 * 1024):
+                        if written + len(chunk) > MAX_FILE:
+                            raise ValueError("Generated mesh exceeds 256 MiB.")
+                        dest.write(chunk)
+                        written += len(chunk)
+                if expected_len is not None and written != expected_len:
+                    raise ValueError(f"Truncated download: expected {expected_len} bytes, got {written}")
+                if path.suffix == ".glb":
+                    data = partial.read_bytes()
+                    parse_geometry(data)
+                else:
+                    with zipfile.ZipFile(partial) as zf:
+                        bad = zf.testzip()
+                        if bad is not None:
+                            raise ValueError(f"Corrupt ZIP entry: {bad}")
+                        choices = [i for i in zf.infolist() if i.filename.lower().endswith(".glb")
+                                   and not i.filename.startswith("__MACOSX/")]
+                        if len(choices) != 1:
+                            raise ValueError("ZIP must contain exactly one .glb mesh")
+                        parse_geometry(zf.read(choices[0]))
+                partial.replace(path)
+            finally:
+                partial.unlink(missing_ok=True)
             return path
     raise ValueError("Provider returned no GLB/ZIP mesh. Check the task's available exports.")
+
+
+def uuid_hex() -> str:
+    import uuid
+    return uuid.uuid4().hex[:8]
 
 
 def read_glb(path: Path, member: str | None = None) -> bytes:

@@ -96,17 +96,21 @@ class PlatformEnv:
             self._hybrid_ply = ply
         body, actuators, mesh_names, world_cams = robot_xml(self.robot, cfg.sensors)
         env_xml, env_assets, self._env_info = scene_builder.environment_xml(cfg, self.lab_root)
-        task_scene = tasks.task_xml(cfg.task, r, h, mass, color, offset, handle, spawn)
+        task_scene = tasks.task_xml(cfg.task, r, h, mass, color, offset, handle, spawn, support_z=cfg.scene.work_surface_z)
         mesh_assets = mesh_files(cfg, self.robot, mesh_names, self.lab_root)
         mesh_assets.update(env_assets)
         mesh_assets["cup.obj"] = mesh
+        mesh_scales = self._env_info.get("mesh_scales", {})
         def _decl(n):
             if n == "scene_env.obj" and cfg.scene.environment:
                 s = cfg.scene.environment.uniform_scale
-                return f'<mesh name="scene_env" file="{n}" scale="{s:.6g} {s:.6g} {s:.6g}"/>'
-            return f'<mesh name="{n[:-4]}" file="{n}"/>'
+                return f'<mesh name="scene_env" file="{n}" scale="{s:.6g} {s:.6g} {s:.6g}" inertia="shell"/>'
+            if n in mesh_scales:
+                s = mesh_scales[n]
+                return f'<mesh name="{n[:-4]}" file="{n}" scale="{s:.6g} {s:.6g} {s:.6g}" inertia="shell"/>'
+            return f'<mesh name="{n[:-4]}" file="{n}" inertia="shell"/>'
         mesh_decls = "".join(_decl(n) for n in mesh_assets if n != "cup.obj")
-        mesh_decls += '<mesh name="cup_mesh" file="cup.obj"/>'
+        mesh_decls += '<mesh name="cup_mesh" file="cup.obj" inertia="shell"/>'
         dt = cfg.scene.physics_dt
         grav = " ".join(str(v) for v in cfg.scene.gravity)
         xml = f"""
@@ -290,9 +294,18 @@ class PlatformEnv:
         object_pose = {"position": self.data.xpos[cup].tolist(),
                        "matrix": self.data.xmat[cup].reshape(3, 3).tolist(),
                        "visual_offset": [0, 0, self._cup_offset]}
+        dynamic_objects = {}
+        for node in self.config.scene.asset_nodes:
+            if node.role == "dynamic":
+                nbid = self.model.body(f"node_{node.node_id}").id
+                dynamic_objects[node.node_id] = {
+                    "position": self.data.xpos[nbid].tolist(),
+                    "matrix": self.data.xmat[nbid].reshape(3, 3).tolist(),
+                }
         self._state = {"time": round(episode_time, 6), "joint_pos": pos, "joint_vel": vel,
                        "eef_position": eef_pos, "eef_matrix": eef_mat, "gripper": grip,
-                       "body_poses": body_poses, "object_pose": object_pose}
+                       "body_poses": body_poses, "object_pose": object_pose,
+                       "dynamic_objects": dynamic_objects}
 
     # -- action / step ------------------------------------------------------
     def validate_action(self, action):
@@ -403,13 +416,16 @@ class PlatformEnv:
             raise UnsupportedMode("expert baseline requires cartesian_delta_ik")
         source = self._judge.start_xyz
         goal = np.array(self.config.task.goal_xy)
-        hover = min(.176, self._asset_height / 2 + .090)
-        grab = self._asset_height / 2 + .002
+        ws_z = float(self.config.scene.work_surface_z)
+        hover = min(.176, ws_z + self._asset_height / 2 + .090)
+        grab = ws_z + self._asset_height / 2 + .002
         gs = self.config.task.goal_surface_m
+        drop = gs + self._asset_height / 2 + .002
+        hover_goal = min(.176, max(hover, gs + self._asset_height / 2 + .040))
         phases = ((24, source[:2], hover, 1), (44, source[:2], grab, 1),
-                  (60, source[:2], grab, -1), (86, source[:2], hover, -1),
-                  (126, goal, hover, -1), (151, goal, grab + gs, -1),
-                  (165, goal, grab + gs, 1))
+                  (60, source[:2], grab, -1), (86, source[:2], hover_goal, -1),
+                  (126, goal, hover_goal, -1), (151, goal, drop, -1),
+                  (165, goal, drop, 1))
         for end_tick, xy, z, grip in phases:
             if self.scheduler.tick < end_tick:
                 break
@@ -427,9 +443,10 @@ class PlatformEnv:
         eef = self.data.xpos[self._eef]
         cup = self.data.xpos[self._judge.cup]
         goal = np.asarray(self.config.task.goal_xy)
+        ws_z = float(self.config.scene.work_surface_z)
         h, gs = self._asset_height, self.config.task.goal_surface_m
-        hover, grab = min(.176, h / 2 + .09), h / 2 + .002
-        lift, drop = h / 2 + .10, gs + h / 2 + .002
+        hover, grab = min(.176, ws_z + h / 2 + .09), ws_z + h / 2 + .002
+        lift, drop = min(.176, max(ws_z + h / 2 + .10, gs + h / 2 + .04)), gs + h / 2 + .002
         tol = .005
         g = self.robot.gripper
         mean = (self.data.qpos[self._qposadr[g.left_joint]] + self.data.qpos[self._qposadr[g.right_joint]]) / 2

@@ -96,6 +96,20 @@ export interface SceneCollider {
   tag: string
 }
 
+export interface SceneAssetNode {
+  node_id: string
+  asset_ref: string
+  role: 'visual_only' | 'static' | 'dynamic'
+  position: number[]
+  quaternion_xyzw: number[]
+  uniform_scale: number
+  collider_ref?: string | null
+  depends_on?: string[]
+  mass_kg?: number | null
+  friction?: number[] | null
+  collision_mode?: 'auto' | 'primitive' | 'compound'
+}
+
 export interface ProjectConfig {
   schema_version: string
   project_id: string
@@ -103,11 +117,15 @@ export interface ProjectConfig {
   validation_status: string
   scene: { physics_dt: number; seed: number; gravity: number[]; use_default_table?: boolean;
     sensor_renderer?: 'mujoco' | 'hybrid'; work_surface_z?: number; colliders?: SceneCollider[];
+    asset_nodes?: SceneAssetNode[];
     environment?: { asset_id: string; revision: number; position: number[]; quaternion_xyzw: number[]; uniform_scale: number } | null }
   robots: Robot[]
   sensors: Sensor[]
   controllers: Controller[]
-  task: { id: string; asset: string; instruction: string; goal_xy: number[]; time_limit_s: number }
+  task: {
+    id: string; asset: string; instruction: string; goal_xy: number[]; time_limit_s: number;
+    goal_surface_m?: number; goal_half_extents?: number[]; goal_tray_collider_ref?: string | null; show_builtin_tray?: boolean;
+  }
 }
 
 export interface Frame {
@@ -149,6 +167,7 @@ export interface Observation {
     gripper: number | null
     body_poses: Record<string, { position: number[]; matrix: number[][] }>
     object_pose: { position: number[]; matrix: number[][] }
+    dynamic_objects?: Record<string, { position: number[]; matrix: number[][] }>
   }
   images: Record<string, Frame | null>
   camera_status?: Record<string, CameraStatus>

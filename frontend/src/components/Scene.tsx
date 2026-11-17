@@ -136,18 +136,42 @@ function Cameras() {
 
 function StaticScene() {
   const config = useStore((s) => s.config)
+  const obs = useStore((s) => s.observation)
   const showColliders = useView(s => s.colliders)
   const goal = config?.task.goal_xy ?? [0.133, 0.05]
+  const goalSurface = config?.task.goal_surface_m ?? 0.009
+  const goalHalf = config?.task.goal_half_extents ?? [0.074, 0.069]
+  const showBuiltinTray = config?.task.show_builtin_tray !== false
+  const wsZ = config?.scene.work_surface_z ?? 0
+  const trayThickness = Math.max(0.004, goalSurface - wsZ)
   const environment = config?.scene.environment
+  const assetNodes = config?.scene.asset_nodes || []
+  const nodeColliderRefs = new Set(assetNodes.map((n) => n.collider_ref).filter(Boolean) as string[])
+  const nodeColliderPrefixes = Array.from(nodeColliderRefs).map((r) => (r.endsWith('_part_0') ? r.slice(0, -7) + '_part_' : r + '_part_'))
+  const isNodeCollider = (name: string) => nodeColliderRefs.has(name) || nodeColliderPrefixes.some((p) => name.startsWith(p))
   return (
     <group>
       <mesh position={[0, 0, -0.061]}><planeGeometry args={[4, 4]} /><meshStandardMaterial color="#303b40" side={THREE.DoubleSide} /></mesh>
-      {config?.scene.use_default_table !== false && <mesh position={[0, 0, -0.028]} receiveShadow><boxGeometry args={[0.64, 0.43, 0.056]} /><meshStandardMaterial color="#4a5c60" roughness={.8} /></mesh>}
+      {config?.scene.use_default_table !== false && <mesh position={[0, 0, wsZ - 0.028]} receiveShadow><boxGeometry args={[0.64, 0.43, 0.056]} /><meshStandardMaterial color="#4a5c60" roughness={.8} /></mesh>}
       {environment && <group position={environment.position as [number, number, number]}
         quaternion={environment.quaternion_xyzw as [number, number, number, number]} scale={environment.uniform_scale}>
         <MeshPart url={`/api/v1/scene-assets/${encodeURIComponent(environment.asset_id)}/revisions/${environment.revision}/visual.obj`} color="#9ea8b2" />
       </group>}
-      {(config?.scene.colliders || []).filter(c => c.enabled && (!environment || showColliders)).map(c => (
+      {assetNodes.map((n) => {
+        const dynPose = n.role === 'dynamic' ? obs?.state?.dynamic_objects?.[n.node_id] : undefined
+        const url = `/api/v1/asset-mesh?ref=${encodeURIComponent(n.asset_ref)}`
+        const tint = n.role === 'dynamic' ? '#e08a4e' : '#9ea8b2'
+        if (dynPose) {
+          return <MeshPart key={n.node_id} url={url} pose={dynPose} color={tint} />
+        }
+        return (
+          <group key={n.node_id} position={n.position as [number, number, number]}
+            quaternion={n.quaternion_xyzw as [number, number, number, number]} scale={n.uniform_scale}>
+            <MeshPart url={url} color={tint} />
+          </group>
+        )
+      })}
+      {(config?.scene.colliders || []).filter(c => c.enabled && ((!environment && !isNodeCollider(c.name)) || showColliders)).map(c => (
         <group key={c.name} position={c.position as [number, number, number]} quaternion={c.quaternion_xyzw as [number, number, number, number]}>
           <mesh rotation={c.shape === 'cylinder' ? [Math.PI / 2, 0, 0] : [0, 0, 0]}>
             {c.shape === 'box' ? <boxGeometry args={c.full_size_m as [number, number, number]} /> :
@@ -157,7 +181,17 @@ function StaticScene() {
           </mesh>
         </group>
       ))}
-      <mesh position={[goal[0], goal[1], 0.0045]}><boxGeometry args={[0.148, 0.138, 0.009]} /><meshStandardMaterial color="#a1b0a7" roughness={.7} /></mesh>
+      {showBuiltinTray ? (
+        <mesh position={[goal[0], goal[1], wsZ + trayThickness / 2]}>
+          <boxGeometry args={[goalHalf[0] * 2, goalHalf[1] * 2, trayThickness]} />
+          <meshStandardMaterial color="#a1b0a7" roughness={.7} />
+        </mesh>
+      ) : (
+        <mesh position={[goal[0], goal[1], goalSurface]}>
+          <boxGeometry args={[goalHalf[0] * 2, goalHalf[1] * 2, 0.002]} />
+          <meshStandardMaterial color="#4ade80" wireframe transparent opacity={.75} />
+        </mesh>
+      )}
     </group>
   )
 }

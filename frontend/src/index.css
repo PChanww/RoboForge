@@ -15,7 +15,7 @@ html, body, #root {
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #30414b; border-radius: 4px; }
 
-input[type='number'], input[type='text'], select {
+input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='range']), select, textarea {
   background: #101a20;
   border: 1px solid #30414b;
   border-radius: 4px;
@@ -24,4 +24,4 @@ input[type='number'], input[type='text'], select {
   font-size: 12px;
   width: 100%;
 }
-input:focus, select:focus { outline: 1px solid #81d2bd; }
+input:focus, select:focus, textarea:focus { outline: 1px solid #81d2bd; }
