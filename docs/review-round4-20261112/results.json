@@ -3,118 +3,53 @@
   "results": [
     {
       "name": "preview_discarded",
-      "reproduced": true,
-      "detail": {
-        "preview": "A single blue cup. CUSTOM_REVIEW_DETAIL.",
-        "submitted": "A single upright cup (object). 9 cm tall, 6 cm outside diameter. Isolated object, no table, no liquid, no text."
-      }
+      "reproduced": false,
+      "error": "AssertionError: "
     },
     {
       "name": "regeneration_reuses_old_asset",
-      "reproduced": true,
-      "detail": {
-        "first_remote": "mock-1",
-        "second_remote": "mock-2",
-        "same_asset_id": "imported/cup-7fda01",
-        "registered_generation_id": "mock-1",
-        "second_status": "succeeded",
-        "hash_matches_second": false
-      }
+      "reproduced": false,
+      "error": "CompileError: 规格在编译后已变更，请先重新编译预览后再确认生成"
     },
     {
       "name": "concurrent_duplicate_remote_submits",
-      "reproduced": true,
-      "detail": {
-        "client_request_id": "same-key",
-        "local_jobs": 2,
-        "provider_submits": 2
-      }
+      "reproduced": false,
+      "error": "AssertionError: "
     },
     {
       "name": "width_depth_ignored",
-      "reproduced": true,
-      "detail": {
-        "requested_m": [
-          0.2,
-          0.15,
-          0.02
-        ],
-        "actual_proxy_m": [
-          0.014358997793279874,
-          0.014143288577102973,
-          0.02
-        ],
-        "calibrated": true,
-        "proxy_basis": "user_explicit"
-      }
+      "reproduced": false,
+      "error": "AssertionError: "
     },
     {
       "name": "world_session_unreadable",
-      "reproduced": true,
-      "detail": {
-        "create_status": 200,
-        "created_kind": "environment_splat",
-        "created_role": "dynamic",
-        "reload_status": 500
-      }
+      "reproduced": false,
+      "error": "AssertionError: "
     },
     {
       "name": "clarification_answer_lost",
-      "reproduced": true,
-      "detail": {
-        "answer_stored": "20 cm",
-        "structured_width_m": null,
-        "answer_visible_to_next_llm_request": false,
-        "state": "ready"
-      }
+      "reproduced": false,
+      "error": "AssertionError: "
     },
     {
       "name": "asset_nodes_not_applied",
-      "reproduced": true,
-      "detail": {
-        "nonexistent_asset_ref": "imported/DOES_NOT_EXIST",
-        "validation_passed": true,
-        "node_present_in_project": false,
-        "warnings": [
-          "static node generated-prop has no collider_ref; it will be visual-only (no contact)"
-        ]
-      }
+      "reproduced": false,
+      "error": "AssertionError: "
     },
     {
       "name": "unknown_submit_cannot_attach_remote",
-      "reproduced": true,
-      "detail": {
-        "same_job": true,
-        "requested_remote_id": "known-remote",
-        "saved_remote_id": null,
-        "state": "submit_unknown"
-      }
+      "reproduced": false,
+      "error": "AssertionError: "
     },
     {
       "name": "download_retry_reuses_partial",
-      "reproduced": true,
-      "detail": {
-        "download_calls_after_explicit_download_retry": 0,
-        "final_state": "retryable_error",
-        "error": "Expected a glTF 2.0 binary mesh with a JSON header."
-      }
+      "reproduced": false,
+      "error": "AssertionError: "
     },
     {
       "name": "confirmed_friction_overwritten",
-      "reproduced": true,
-      "detail": {
-        "user_accepted": [
-          0.95,
-          0.005,
-          0.0001
-        ],
-        "after_llm": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "source": "model_inferred"
-      }
+      "reproduced": false,
+      "error": "AssertionError: "
     }
   ]
 }
