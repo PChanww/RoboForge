@@ -52,6 +52,13 @@ def _decode_rgb_tensor(b64: str) -> torch.Tensor:
 
 
 def main():
+    proto_out = sys.stdout
+    sys.stdout = sys.stderr
+
+    def _emit(payload: dict) -> None:
+        proto_out.write(json.dumps(payload) + "\n")
+        proto_out.flush()
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--model-dir", required=True)
     ap.add_argument("--processor", default=None)
@@ -86,7 +93,7 @@ def main():
     zero_noise = torch.zeros((1, chunk_size, max_act_dim), dtype=torch.float32, device=dev)
 
     token_cache: dict[str, tuple[torch.Tensor, torch.Tensor]] = {}
-    print(json.dumps({"ready": True, "device": str(dev), "model_dir": str(model_dir)}), flush=True)
+    _emit({"ready": True, "device": str(dev), "model_dir": str(model_dir)})
 
     for line in sys.stdin:
         line = line.strip()
@@ -96,10 +103,10 @@ def main():
         cmd = req.get("cmd")
         if cmd == "reset":
             policy.reset()
-            print(json.dumps({"ok": True}), flush=True)
+            _emit({"ok": True})
             continue
         if cmd == "close":
-            print(json.dumps({"closed": True}), flush=True)
+            _emit({"closed": True})
             break
         if cmd == "act":
             instr = str(req.get("instruction") or default_instr).rstrip() + "\n"
@@ -122,9 +129,9 @@ def main():
                 with torch.amp.autocast(device_type=dev.type, dtype=torch.bfloat16, enabled=use_bf16):
                     pred_norm = policy.predict_action_chunk(batch, noise=zero_noise)
                 pred = torch.clamp(pred_norm[0].float() * act_std + act_mean, -1.0, 1.0)
-            print(json.dumps({"chunk": pred.cpu().tolist()}), flush=True)
+            _emit({"chunk": pred.cpu().tolist()})
             continue
-        print(json.dumps({"error": f"unknown cmd {cmd!r}"}), flush=True)
+        _emit({"error": f"unknown cmd {cmd!r}"})
 
 
 if __name__ == "__main__":

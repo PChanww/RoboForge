@@ -54,6 +54,7 @@ class SmolVLAPolicyRunner:
             model_wsl = _to_wsl_path(self.model_dir)
             cmd = [
                 "wsl", "-d", distro, "--", "bash", "-lc",
+                f"PYTHONDONTWRITEBYTECODE=1 TOKENIZERS_PARALLELISM=false "
                 f"PYTHONPATH={deps_wsl}:. HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 "
                 f"~/miniconda3/envs/voxcpm/bin/python -u {script_wsl} --model-dir {model_wsl}",
             ]
@@ -68,12 +69,22 @@ class SmolVLAPolicyRunner:
             encoding="utf-8",
             bufsize=1,
         )
-        line = proc.stdout.readline() if proc.stdout else ""
-        if not line:
+        hdr = None
+        while proc.stdout is not None:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            s = line.strip()
+            if s.startswith("{"):
+                try:
+                    hdr = json.loads(s)
+                    break
+                except json.JSONDecodeError:
+                    continue
+        if hdr is None:
             err = proc.stderr.read() if proc.stderr else ""
             proc.kill()
             raise RuntimeError(f"SmolVLA worker failed to start: {err.strip()}")
-        hdr = json.loads(line)
         if not hdr.get("ready"):
             proc.kill()
             raise RuntimeError(f"Unexpected SmolVLA worker handshake: {hdr}")

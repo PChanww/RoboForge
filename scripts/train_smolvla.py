@@ -353,6 +353,19 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     policy.cpu()
     policy.save_pretrained(out_dir)
+    cfg_path = out_dir / "config.json"
+    cfg_data = json.loads(cfg_path.read_text(encoding="utf-8"))
+    if "type" not in cfg_data:
+        cfg_data = {"type": getattr(policy, "name", "smolvla"), **cfg_data}
+        cfg_path.write_text(json.dumps(cfg_data, indent=4), encoding="utf-8")
+
+    trainable_keys = {k for k, p in policy.named_parameters() if p.requires_grad}
+    expert_delta = {
+        k: v.detach().cpu().to(torch.bfloat16)
+        for k, v in policy.state_dict().items()
+        if k in trainable_keys
+    }
+    torch.save(expert_delta, out_dir / "expert_delta.pt")
 
     stats_payload = {
         "model_id": args.model_out,
