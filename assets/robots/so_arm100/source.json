@@ -1,0 +1,11 @@
+{
+  "prototype": "HuggingFace LeRobot SO-ARM100 (SO-100)",
+  "actuators": "Feetech STS3215 serial bus servos (scaled desktop 5R+gripper kinematic twin)",
+  "chain_links_m": {
+    "shoulder_z": 0.08,
+    "upper_arm": 0.23,
+    "forearm": 0.23,
+    "tool": 0.075
+  },
+  "finish": "matte off-white 3D-printed PLA brackets + slate grey STS3215 servo housings"
+}

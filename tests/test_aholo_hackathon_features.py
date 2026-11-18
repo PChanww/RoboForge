@@ -563,3 +563,82 @@ def test_dual_camera_visual_policy_inference_and_models_api(tmp_path, monkeypatc
     assert sj["tick"] == sess["observation"]["tick"] + 3
     assert len(sj["last_action"]) == 4
     c.delete(f"/api/v1/sessions/{sid}")
+
+
+def test_so100_prototype_urdf_and_action_chunk_policy(tmp_path, monkeypatch):
+    from vlab.engine import PlatformEnv
+    from vlab.so100_prototype import setup_so100_project
+    from vlab.store import ConfigStore
+    from vlab.visual_infer import VisualPolicyRunner
+
+    lab = _make_lab(tmp_path)
+    monkeypatch.delenv("AHOLO_API_KEY", raising=False)
+    store = ConfigStore(lab / "projects")
+    res = setup_so100_project(lab, store, project_id="so100_test", live_generate=False)
+    assert res["robot_id"] == "so_arm100"
+    assert res["task_asset"] == "imported/so100-target-canister"
+    assert (lab / res["urdf_path"]).is_file()
+    assert "<robot name=\"so_arm100\">" in (lab / res["urdf_path"]).read_text(encoding="utf-8")
+
+    cfg = store.load("so100_test")
+    env = PlatformEnv(cfg, lab)
+    kin = env.validate_kinematics()
+    assert kin["consistent"] is True
+    for s in kin["samples"]:
+        if s.get("reachable"):
+            assert s["fk_error_mm"] < 1.0
+    env.close()
+
+    # Action Chunking VisualPolicyRunner (chunk_size=4, front+wrist)
+    models_dir = lab / "datasets" / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    bias = np.tile(np.array([0.2, -0.1, 0.05, 0.8], dtype=np.float32), 4)
+    np.savez(
+        models_dir / "tiny_chunk_bc.npz",
+        **{
+            "conv.0.weight": np.zeros((16, 6, 5, 5), dtype=np.float32),
+            "conv.0.bias": np.zeros(16, dtype=np.float32),
+            "conv.2.weight": np.zeros((32, 16, 3, 3), dtype=np.float32),
+            "conv.2.bias": np.zeros(32, dtype=np.float32),
+            "conv.4.weight": np.zeros((64, 32, 3, 3), dtype=np.float32),
+            "conv.4.bias": np.zeros(64, dtype=np.float32),
+            "img_fc.weight": np.zeros((64, 64 * 6 * 6), dtype=np.float32),
+            "img_fc.bias": np.zeros(64, dtype=np.float32),
+            "state_fc.weight": np.zeros((32, 22), dtype=np.float32),
+            "state_fc.bias": np.zeros(32, dtype=np.float32),
+            "head.0.weight": np.zeros((128, 96), dtype=np.float32),
+            "head.0.bias": np.zeros(128, dtype=np.float32),
+            "head.2.weight": np.zeros((16, 128), dtype=np.float32),
+            "head.2.bias": bias,
+            "state_mean": np.zeros(18, dtype=np.float32),
+            "state_std": np.ones(18, dtype=np.float32),
+            "prev_mean": np.zeros(4, dtype=np.float32),
+            "prev_std": np.ones(4, dtype=np.float32),
+            "img_size": np.array(64, dtype=np.int32),
+            "chunk_size": np.array(4, dtype=np.int32),
+            "camera_keys": np.array(json.dumps(["front", "wrist"])),
+        },
+    )
+    runner = VisualPolicyRunner(lab, "tiny_chunk_bc")
+    assert runner.chunk_size == 4
+    chunk = runner.forward(np.zeros((6, 64, 64), dtype=np.float32), np.zeros(18, dtype=np.float32))
+    assert chunk.shape == (4, 4)
+
+    app = create_app(lab)
+    c = TestClient(app)
+    r_setup = c.post("/api/v1/so100-prototype/setup", json={"project_id": "so100_api", "live_generate": False})
+    assert r_setup.status_code == 200, r_setup.text
+    assert r_setup.json()["robot_id"] == "so_arm100"
+    assert c.get("/assets/robots/so_arm100/base.obj").status_code == 200
+
+    sess = c.post("/api/v1/sessions", json={"project": "so100_api"}).json()
+    sid, epoch = sess["id"], sess["epoch"]
+    tok = c.post(f"/api/v1/sessions/{sid}/control/acquire", json={"owner": "test"}).json()["token"]
+    step = c.post(f"/api/v1/sessions/{sid}/policy_step", json={
+        "token": tok, "model_id": "tiny_chunk_bc", "epoch": epoch, "steps": 4,
+    })
+    assert step.status_code == 200, step.text
+    sj = step.json()
+    assert sj["tick"] == sess["observation"]["tick"] + 4
+    assert sj["last_action"] == pytest.approx(np.tanh([0.2, -0.1, 0.05, 0.8]).tolist(), abs=1e-4)
+    c.delete(f"/api/v1/sessions/{sid}")

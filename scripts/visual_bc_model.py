@@ -18,9 +18,10 @@ ACTION_NAMES = ["dx", "dy", "dz", "grip"]
 
 
 class VisualBC(nn.Module):
-    def __init__(self, in_channels: int = 3):
+    def __init__(self, in_channels: int = 3, chunk_size: int = 1):
         super().__init__()
         self.in_channels = int(in_channels)
+        self.chunk_size = max(1, int(chunk_size))
         self.conv = nn.Sequential(
             nn.Conv2d(self.in_channels, 16, 5, stride=2), nn.ReLU(),   # 30
             nn.Conv2d(16, 32, 3, stride=2), nn.ReLU(),  # 14
@@ -29,12 +30,15 @@ class VisualBC(nn.Module):
         self.img_fc = nn.Linear(64 * 6 * 6, 64)
         self.state_fc = nn.Linear(STATE_DIM + PREV_DIM, 32)
         self.head = nn.Sequential(nn.Linear(64 + 32, 128), nn.ReLU(),
-                                  nn.Linear(128, 4), nn.Tanh())
+                                  nn.Linear(128, 4 * self.chunk_size), nn.Tanh())
 
     def forward(self, img, state, prev):
         i = F.relu(self.img_fc(self.conv(img)))
         s = F.relu(self.state_fc(torch.cat([state, prev], dim=1)))
-        return self.head(torch.cat([i, s], dim=1))
+        out = self.head(torch.cat([i, s], dim=1))
+        if self.chunk_size == 1:
+            return out
+        return out.view(-1, self.chunk_size, 4)
 
 
 def fallback_contract(img_size=IMG):

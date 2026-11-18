@@ -152,6 +152,12 @@ class DemoSetupBody(BaseModel):
     support_plane_z: float = 0.0
 
 
+class So100SetupBody(BaseModel):
+    project_id: str = "so100_real_loop"
+    live_generate: bool = False
+    with_world_background: bool = False
+
+
 def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     app = FastAPI(title="VLA Lab Platform", version=SCHEMA_VERSION)
     store = ConfigStore(lab_root / "projects")
@@ -208,6 +214,16 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     robot_mesh_dir = lab_root / "assets" / "robot"
     if robot_mesh_dir.is_dir():
         app.mount("/assets/robot", StaticFiles(directory=robot_mesh_dir), name="robot_meshes")
+
+    @app.get("/assets/robots/{rid}/{fname}")
+    def custom_robot_mesh(rid: str, fname: str):
+        valid_id(rid)
+        if not fname.endswith(".obj") or "/" in fname or "\\" in fname or ".." in fname:
+            raise HTTPException(400, "invalid robot mesh filename")
+        p = contained_file(lab_root / "assets" / "robots" / rid, fname)
+        if not p.is_file():
+            raise HTTPException(404, "robot mesh not found")
+        return FileResponse(p, media_type="text/plain")
 
     @app.get("/api/v1/cup.obj")
     def cup_mesh(asset: str = "standard"):
@@ -995,6 +1011,20 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
                 project_id=body.project_id,
                 with_world_background=body.with_world_background,
                 support_plane_z=body.support_plane_z,
+            )
+        except Exception as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/v1/so100-prototype/setup")
+    def so100_prototype_setup(body: So100SetupBody):
+        from .so100_prototype import setup_so100_project
+        try:
+            valid_id(body.project_id)
+            return setup_so100_project(
+                lab_root, store,
+                project_id=body.project_id,
+                live_generate=body.live_generate,
+                with_world_background=body.with_world_background,
             )
         except Exception as exc:
             raise HTTPException(400, str(exc))

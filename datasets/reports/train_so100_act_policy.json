@@ -1,0 +1,26 @@
+{
+ "type": "visual BC (front+wrist+state, chunk=8, no object pose)",
+ "camera_keys": [
+  "front",
+  "wrist"
+ ],
+ "in_channels": 6,
+ "chunk_size": 8,
+ "device": "cuda",
+ "episodes": 20,
+ "frames": 1481,
+ "train_frames": 1112,
+ "optimizer_steps": 2880,
+ "val_mse": 0.00508,
+ "gen_mse": 0.00451,
+ "reload_max_abs_diff": 0.0,
+ "numpy_parity_max_diff": 1.82e-06,
+ "dataset": "so100_real_demos",
+ "render_meta": {
+  "render_mode": "mujoco",
+  "sensor_renderer": "mujoco",
+  "renderer_version": "mujoco:1"
+ },
+ "checkpoint": "/mnt/c/Users/31295/Documents/Codex/2026-11-09/https-www-aholo3d-cn-hackathon-utm/outputs/vla-lab/datasets/models/so100_act_policy.pt",
+ "numpy_weights": "/mnt/c/Users/31295/Documents/Codex/2026-11-09/https-www-aholo3d-cn-hackathon-utm/outputs/vla-lab/datasets/models/so100_act_policy.npz"
+}

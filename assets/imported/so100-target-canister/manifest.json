@@ -1,0 +1,209 @@
+{
+  "obj": "visual.obj",
+  "kind": "task_object",
+  "role": "visual_only",
+  "height_m": 0.088,
+  "width_m": 0.064,
+  "depth_m": 0.064,
+  "radius_m": 0.032,
+  "mass_kg": 0.09,
+  "friction": null,
+  "bounds_m": [
+    [
+      -0.039727444425726496,
+      -0.039425653400241116,
+      0.0
+    ],
+    [
+      0.039731616437204464,
+      0.03944593027323084,
+      0.088
+    ]
+  ],
+  "actual_extents_m": [
+    0.07945906086293096,
+    0.07887158367347195,
+    0.088
+  ],
+  "up_axis": "Z",
+  "triangles": 273398,
+  "collision_proxy": {
+    "shape": "cylinder",
+    "size_m": [
+      0.064,
+      0.064,
+      0.088
+    ],
+    "position": [
+      0,
+      0,
+      0.044
+    ],
+    "basis": "proxy_estimate"
+  },
+  "collision_proxy_desc": "concave compound (5 boxes, fill_ratio=0.5536); preserves hollow/rim contacts",
+  "compound_proxy": {
+    "shape": "compound",
+    "boxes": [
+      {
+        "shape": "box",
+        "size_m": [
+          0.07945906086293096,
+          0.07887158367347195,
+          0.011
+        ],
+        "position": [
+          2.0860057389840425e-06,
+          1.0138436494860903e-05,
+          0.0055
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      {
+        "shape": "box",
+        "size_m": [
+          0.07945906086293096,
+          0.011267369096210279,
+          0.077
+        ],
+        "position": [
+          2.0860057389840425e-06,
+          -0.03379196885213598,
+          0.049499999999999995
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      {
+        "shape": "box",
+        "size_m": [
+          0.011351294408990137,
+          0.06760421457726168,
+          0.077
+        ],
+        "position": [
+          -0.03405179722123143,
+          0.0056438229845999985,
+          0.049499999999999995
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      {
+        "shape": "box",
+        "size_m": [
+          0.06810776645394082,
+          0.011267369096210279,
+          0.077
+        ],
+        "position": [
+          0.00567773321023405,
+          0.03381224572512569,
+          0.049499999999999995
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      {
+        "shape": "box",
+        "size_m": [
+          0.011351294408990137,
+          0.05633684548105139,
+          0.077
+        ],
+        "position": [
+          0.034055969232709385,
+          1.0138436494860903e-05,
+          0.049499999999999995
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      }
+    ],
+    "box_count": 5,
+    "fill_ratio": 0.5536,
+    "concave_detected": true,
+    "grid_shape": [
+      14,
+      14,
+      16
+    ],
+    "floor_box_index": 0,
+    "basis": "voxel_box_decomposition"
+  },
+  "concave_detected": true,
+  "collision_mode": "auto",
+  "calibrated": false,
+  "physics_status": "uncalibrated",
+  "scale_mode": "uniform",
+  "scale_factors": [
+    0.9263158010974156,
+    0.9263158010974156,
+    0.9263158010974156
+  ],
+  "unsatisfied_dimensions": {
+    "width_m": {
+      "requested_m": 0.064,
+      "actual_m": 0.07945906086293096
+    },
+    "depth_m": {
+      "requested_m": 0.064,
+      "actual_m": 0.07887158367347195
+    }
+  },
+  "scale_basis": "uniform scaling; requested dimension constraints unsatisfied",
+  "normalization": {
+    "source_up_axis": "y",
+    "scaled_to_height_m": 0.088,
+    "scale_mode": "uniform",
+    "scale_factors": [
+      0.9263158010974156,
+      0.9263158010974156,
+      0.9263158010974156
+    ],
+    "centered_footprint": true,
+    "original_extents_m": [
+      0.08577966690063477,
+      0.08514545857906342,
+      0.0949999988079071
+    ]
+  },
+  "source": "lux3d",
+  "source_detail": "Aholo Lux3D live generated SO-100 precision canister",
+  "generation_id": "8282286",
+  "prompt": "A single compact cylindrical crimson red anodized aluminum industrial precision canister cup, upright cylinder with flat bottom and open top rim, matte metallic finish, clean product CAD mesh",
+  "source_mesh": "original.glb",
+  "sha256_glb": "de9c7d37773ced96ca9ca891ef712ed06f4363ee5548a41a04e8b2c5fb011c2b",
+  "spec_id": null,
+  "spec_revision": null,
+  "spec_hash": null,
+  "compiler_version": null,
+  "job_id": null,
+  "color_rgb": [
+    0.19659460138378865,
+    0.020848070868978434,
+    0.03516332269540715
+  ],
+  "color_basis": "area-weighted mean of material or indexed vertex colors; uniform simulator tint"
+}

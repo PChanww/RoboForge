@@ -171,10 +171,15 @@ function Robot() {
         const isGripPart = Boolean(robot.gripper && (link.name === 'eef' || link.name === 'left' || link.name === 'right'))
         return (
           <group key={link.name} onClick={(e) => { e.stopPropagation(); select({ kind: 'link', id: link.name }) }}>
-            {link.visuals.map((v, i) => (
-              <MeshPart key={`v${i}`} url={`/${robot.mesh_dir}/${v.mesh}.obj`} pose={pose}
-                color={sel ? '#81d2bd' : '#d6c39a'} />
-            ))}
+            {link.visuals.map((v, i) => {
+              const vColor = v.rgba
+                ? `rgb(${Math.round(v.rgba[0] * 255)}, ${Math.round(v.rgba[1] * 255)}, ${Math.round(v.rgba[2] * 255)})`
+                : '#d6c39a'
+              return (
+                <MeshPart key={`v${i}`} url={`/${robot.mesh_dir}/${v.mesh}.obj`} pose={pose}
+                  color={sel ? '#81d2bd' : vColor} />
+              )
+            })}
             {pose && isGripPart && (
               <GripperVisual name={link.name as 'eef' | 'left' | 'right'} pose={pose} sel={sel} />
             )}

@@ -45,6 +45,17 @@ def load(ds, camera_keys):
     return (torch.stack(imgs), torch.stack(states), torch.stack(acts), np.asarray(eps))
 
 
+def _select_device(requested: str) -> torch.device:
+    req = (requested or "auto").strip().lower()
+    if req != "auto":
+        return torch.device(req)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if hasattr(torch, "npu") and torch.npu.is_available():
+        return torch.device("npu")
+    return torch.device("cpu")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--lab", required=True)
@@ -52,9 +63,13 @@ def main():
     ap.add_argument("--dataset", default="expert21")
     ap.add_argument("--model-out", default="visual_bc")
     ap.add_argument("--cameras", default="front", help="Comma-separated camera keys, e.g. front,wrist")
+    ap.add_argument("--chunk-size", type=int, default=1, help="Action chunking horizon (>1 enables multi-step ACT-style head)")
+    ap.add_argument("--device", default="auto", help="auto, cpu, cuda, or npu")
     args = ap.parse_args()
     valid_id(args.dataset)
     valid_id(args.model_out)
+    chunk_size = max(1, int(args.chunk_size))
+    dev = _select_device(args.device)
     camera_keys = [valid_id(c.strip()) for c in args.cameras.split(",") if c.strip()]
     if not camera_keys:
         raise ValueError("Provide at least one camera key")
@@ -73,6 +88,16 @@ def main():
     for e in np.unique(ep):
         idx = np.where(ep == e)[0]
         prev[idx[1:]] = act[idx[:-1]]
+    if chunk_size > 1:
+        target = torch.zeros((len(act), chunk_size, PREV_DIM), dtype=act.dtype)
+        for e in np.unique(ep):
+            idx = np.where(ep == e)[0]
+            end = len(idx) - 1
+            for k in range(chunk_size):
+                gather_pos = [idx[min(pos + k, end)] for pos in range(len(idx))]
+                target[idx, k] = act[gather_pos]
+    else:
+        target = act
     unique_eps = sorted(np.unique(ep).tolist())
     if len(unique_eps) >= 20 and max(unique_eps) >= 19:
         tr, va, gen = ep <= 14, (ep >= 15) & (ep <= 18), ep >= 19
@@ -96,15 +121,17 @@ def main():
     pn = (prev - pmean) / pstd
     torch.manual_seed(0)
     in_channels = 3 * len(camera_keys)
-    model = VisualBC(in_channels=in_channels)
+    model = VisualBC(in_channels=in_channels, chunk_size=chunk_size).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(1, args.epochs))
     loss_fn = nn.MSELoss()
     n, steps = int(tr.sum()), 0
     bs = 32 if n < 800 else 64
-    xt = (img[tr], sn[tr], pn[tr], act[tr])
+    xt = (img[tr].to(dev), sn[tr].to(dev), pn[tr].to(dev), target[tr].to(dev))
+    va_x = (img[va].to(dev), sn[va].to(dev), pn[va].to(dev), target[va].to(dev))
+    gen_x = (img[gen].to(dev), sn[gen].to(dev), pn[gen].to(dev), target[gen].to(dev))
     for epoch in range(args.epochs):
-        perm = torch.randperm(n)
+        perm = torch.randperm(n, device=dev)
         model.train()
         for i in range(0, n, bs):
             idx = perm[i:i + bs]
@@ -117,12 +144,13 @@ def main():
         if (epoch + 1) % 10 == 0:
             model.eval()
             with torch.no_grad():
-                vl = float(loss_fn(model(img[va], sn[va], pn[va]), act[va]))
-            print({"epoch": epoch + 1, "val_mse": round(vl, 5)}, flush=True)
+                vl = float(loss_fn(model(va_x[0], va_x[1], va_x[2]), va_x[3]))
+            print({"epoch": epoch + 1, "val_mse": round(vl, 5), "device": str(dev)}, flush=True)
     model.eval()
     with torch.no_grad():
-        val_mse = float(loss_fn(model(img[va], sn[va], pn[va]), act[va]))
-        gen_mse = float(loss_fn(model(img[gen], sn[gen], pn[gen]), act[gen]))
+        val_mse = float(loss_fn(model(va_x[0], va_x[1], va_x[2]), va_x[3]))
+        gen_mse = float(loss_fn(model(gen_x[0], gen_x[1], gen_x[2]), gen_x[3]))
+    model_cpu = model.cpu()
     models = lab / "datasets" / "models"
     models.mkdir(parents=True, exist_ok=True)
     render_meta = {}
@@ -131,39 +159,42 @@ def main():
         mf = json.loads(manifest_path.read_text(encoding="utf-8"))
         render_meta = {k: mf.get(k) for k in ("render_mode", "sensor_renderer", "renderer_version",
                                              "gaussian_sha256") if mf.get(k) is not None}
-    ck = {"state_dict": model.state_dict(), "state_mean": smean, "state_std": sstd,
-          "prev_mean": pmean, "prev_std": pstd, "img_size": IMG, "steps": steps,
+    ck = {"state_dict": model_cpu.state_dict(), "state_mean": smean, "state_std": sstd,
+          "prev_mean": pmean, "prev_std": pstd, "img_size": IMG, "chunk_size": chunk_size, "steps": steps,
           "in_channels": in_channels, "camera_keys": camera_keys,
           "privileged": False, "inputs": camera_keys + ["state", "prev_action"],
           "contract": contract, "dataset": args.dataset, "config_sha256": source["config_sha256"],
           "render_meta": render_meta}
     torch.save(ck, models / f"{args.model_out}.pt")
-    npz_payload = {k: v.detach().cpu().numpy().astype(np.float32) for k, v in model.state_dict().items()}
+    npz_payload = {k: v.detach().cpu().numpy().astype(np.float32) for k, v in model_cpu.state_dict().items()}
     npz_payload.update({
         "state_mean": smean.cpu().numpy().astype(np.float32),
         "state_std": sstd.cpu().numpy().astype(np.float32),
         "prev_mean": pmean.cpu().numpy().astype(np.float32),
         "prev_std": pstd.cpu().numpy().astype(np.float32),
         "img_size": np.array(IMG, dtype=np.int32),
+        "chunk_size": np.array(chunk_size, dtype=np.int32),
         "camera_keys": np.array(json.dumps(camera_keys)),
         "state_joints": np.array(json.dumps(source.get("joints") or ["waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw", "left", "right"])),
     })
     np.savez(models / f"{args.model_out}.npz", **npz_payload)
     runner = VisualPolicyRunner(lab, args.model_out)
     with torch.no_grad():
-        t_out = model(img[:4], sn[:4], pn[:4]).numpy()
+        t_out = model_cpu(img[:4], sn[:4], pn[:4]).numpy()
     np_out = np.stack([runner.forward(img[k].numpy(), state[k].numpy(), prev[k].numpy()) for k in range(min(4, len(img)))])
     numpy_parity = float(np.abs(t_out[:len(np_out)] - np_out).max())
     if numpy_parity >= 1e-4:
         raise RuntimeError(f"PyTorch/NumPy inference parity check failed: {numpy_parity}")
     ck2 = torch.load(models / f"{args.model_out}.pt", weights_only=False)
-    m2 = VisualBC(in_channels=in_channels)
+    m2 = VisualBC(in_channels=in_channels, chunk_size=chunk_size)
     m2.load_state_dict(ck2["state_dict"])
     m2.eval()
     with torch.no_grad():
-        diff = float((model(img[:4], sn[:4], pn[:4]) - m2(img[:4], sn[:4], pn[:4])).abs().max())
-    summary = {"type": f"visual BC ({'+'.join(camera_keys)}+state, no object pose)",
-               "camera_keys": camera_keys, "in_channels": in_channels,
+        diff = float((model_cpu(img[:4], sn[:4], pn[:4]) - m2(img[:4], sn[:4], pn[:4])).abs().max())
+    chunk_label = f", chunk={chunk_size}" if chunk_size > 1 else ""
+    summary = {"type": f"visual BC ({'+'.join(camera_keys)}+state{chunk_label}, no object pose)",
+               "camera_keys": camera_keys, "in_channels": in_channels, "chunk_size": chunk_size,
+               "device": str(dev),
                "episodes": len(unique_eps), "frames": int(len(img)),
                "train_frames": int(tr.sum()), "optimizer_steps": steps,
                "val_mse": round(val_mse, 5), "gen_mse": round(gen_mse, 5),
