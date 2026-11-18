@@ -642,3 +642,24 @@ def test_so100_prototype_urdf_and_action_chunk_policy(tmp_path, monkeypatch):
     assert sj["tick"] == sess["observation"]["tick"] + 4
     assert sj["last_action"] == pytest.approx(np.tanh([0.2, -0.1, 0.05, 0.8]).tolist(), abs=1e-4)
     c.delete(f"/api/v1/sessions/{sid}")
+
+
+def test_smolvla_models_api_lists_directory_checkpoints(tmp_path):
+    lab = _make_lab(tmp_path)
+    mdir = lab / "datasets" / "models" / "so100_smolvla_test"
+    mdir.mkdir(parents=True, exist_ok=True)
+    (mdir / "config.json").write_text(json.dumps({"type": "smolvla", "chunk_size": 16}), encoding="utf-8")
+    (mdir / "so100_stats.json").write_text(json.dumps({
+        "model_id": "so100_smolvla_test",
+        "arch": "smolvla",
+        "camera_keys": ["front", "wrist"],
+        "chunk_size": 16,
+    }), encoding="utf-8")
+    app = create_app(lab)
+    c = TestClient(app)
+    models = c.get("/api/v1/models").json()["models"]
+    hit = [m for m in models if m["id"] == "so100_smolvla_test"]
+    assert len(hit) == 1
+    assert hit[0]["runnable"] is True
+    assert hit[0]["arch"] == "smolvla"
+    assert hit[0]["camera_keys"] == ["front", "wrist"]

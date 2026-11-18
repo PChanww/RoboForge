@@ -27,4 +27,6 @@ work/
 .DS_Store
 Thumbs.db
 exports/*/datasets/
+exports/*/base_weights/
+datasets/models/*/*.safetensors
 outputs/

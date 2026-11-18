@@ -1,11 +1,12 @@
-"""Package a standalone GPU/NPU training bundle for SO-ARM100 dual-camera Action Chunking policy.
+"""Package a standalone GPU/NPU training bundle for SO-ARM100 Action Chunking + 450M SmolVLA.
 
 Produces `exports/so100_server_bundle/` containing:
-- `scripts/train_image_bc.py`, `scripts/visual_bc_model.py`
-- minimal `vlab/` runtime modules (`schema.py`, `compat.py`, `scene_assets.py`, `visual_infer.py`)
+- `scripts/train_smolvla.py`, `scripts/smolvla_worker.py` (real 450M SmolVLA Flow-Matching)
+- `scripts/train_image_bc.py`, `scripts/visual_bc_model.py` (fast CNN Action Chunking baseline)
+- minimal `vlab/` runtime modules (`schema.py`, `compat.py`, `scene_assets.py`, `visual_infer.py`, `smolvla_infer.py`)
 - `datasets/lerobot/<dataset>/` (LeRobot v3 parquet + meta + dual-camera frames)
-- `datasets/collections/<dataset>/manifest.json` (renderer provenance if present)
-- `run_3090.sh`, `run_ascend910.sh`, `requirements.txt`, and `README_SERVER_TRAIN.md`
+- `run_3090_smolvla.sh`, `run_ascend910_smolvla.sh`, `run_3090.sh`, `run_ascend910.sh`
+- `requirements.txt` and `README_SERVER_TRAIN.md`
 """
 from __future__ import annotations
 
@@ -28,8 +29,17 @@ def build_bundle(lab_root: Path, out_dir: Path, dataset_id: str = "so100_real_de
     (out_dir / "vlab").mkdir(parents=True, exist_ok=True)
     (out_dir / "datasets" / "lerobot").mkdir(parents=True, exist_ok=True)
 
-    for rel in ("scripts/train_image_bc.py", "scripts/visual_bc_model.py",
-                "vlab/schema.py", "vlab/compat.py", "vlab/scene_assets.py", "vlab/visual_infer.py"):
+    for rel in (
+        "scripts/train_image_bc.py",
+        "scripts/visual_bc_model.py",
+        "scripts/train_smolvla.py",
+        "scripts/smolvla_worker.py",
+        "vlab/schema.py",
+        "vlab/compat.py",
+        "vlab/scene_assets.py",
+        "vlab/visual_infer.py",
+        "vlab/smolvla_infer.py",
+    ):
         shutil.copy2(lab_root / rel, out_dir / rel)
     (out_dir / "vlab" / "__init__.py").write_text("", encoding="utf-8")
 
@@ -42,9 +52,36 @@ def build_bundle(lab_root: Path, out_dir: Path, dataset_id: str = "so100_real_de
     shutil.copytree(ds_src, out_dir / "datasets" / "lerobot" / dataset_id)
 
     (out_dir / "requirements.txt").write_text(
-        "torch>=2.2\nnumpy>=1.26\npillow>=10.0\npydantic>=2.6\nlerobot>=0.4.0\n",
+        "torch>=2.2\nnumpy>=1.26\npillow>=10.0\npydantic>=2.6\n"
+        "transformers>=4.49\nsafetensors>=0.4\nlerobot>=0.4.0\n",
         encoding="utf-8",
     )
+
+    run_3090_smolvla = (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'cd "$(dirname "$0")"\n'
+        "export HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}\n"
+        "export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}\n"
+        f"python scripts/train_smolvla.py --lab . --dataset {dataset_id} "
+        "--model-out so100_smolvla --cameras front,wrist --chunk-size 16 "
+        "--steps 1000 --batch-size 16 --lr 1e-4 --device cuda \"$@\"\n"
+        'echo "SmolVLA training finished. Copy datasets/models/so100_smolvla and datasets/reports/train_so100_smolvla.json back to RoboForge."\n'
+    )
+    (out_dir / "run_3090_smolvla.sh").write_text(run_3090_smolvla, encoding="utf-8", newline="\n")
+
+    run_910_smolvla = (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'cd "$(dirname "$0")"\n'
+        "export HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}\n"
+        "export ASCEND_RT_VISIBLE_DEVICES=${ASCEND_RT_VISIBLE_DEVICES:-0}\n"
+        f"python scripts/train_smolvla.py --lab . --dataset {dataset_id} "
+        "--model-out so100_smolvla --cameras front,wrist --chunk-size 16 "
+        "--steps 1000 --batch-size 16 --lr 1e-4 --device npu \"$@\"\n"
+        'echo "SmolVLA training finished on Ascend 910. Copy datasets/models/so100_smolvla and datasets/reports/train_so100_smolvla.json back to RoboForge."\n'
+    )
+    (out_dir / "run_ascend910_smolvla.sh").write_text(run_910_smolvla, encoding="utf-8", newline="\n")
 
     run_3090 = (
         "#!/usr/bin/env bash\n"
@@ -75,32 +112,33 @@ def build_bundle(lab_root: Path, out_dir: Path, dataset_id: str = "so100_real_de
     readme = f"""# SO-ARM100 Standalone Server Training Bundle (`{dataset_id}`)
 
 ## Hardware & VRAM Footprint (Well below 50 GB / 3×3090 budget)
-- **Default architecture (`{model_out}`)**: Dual-camera (`front + wrist`) CNN + Proprioception + Action Chunking (`chunk_size={chunk_size}`, 32 output action dims over 8 horizon ticks)
-  - **VRAM usage**: **< 1.5 GB** on single RTX 3090 (or single Ascend 910 NPU)
-  - **Wall-clock time**: **< 1 minute** on 1× RTX 3090 for `{epochs}` epochs
-- **Optional full VLM-based VLA (`SmolVLA` 450M Flow-Matching)**:
-  - **VRAM usage**: **~11–14 GB** fp16/bf16 on a **single RTX 3090 (24 GB)**
-  - Fits easily within 1 card (< 50 GB limit).
+1. **Real 450M `SmolVLA` (`SmolVLM2-500M` + Flow-Matching Action Expert, `so100_smolvla`)** — **Recommended**:
+   - Inputs: Dual cameras (`front + wrist` 256×256) + 18D SO-ARM100 proprioception + natural language task prompt
+   - Outputs: 16-step 4D continuous delta-IK + gripper Flow-Matching trajectory chunk
+   - **VRAM usage (frozen VLM prefix cache + bf16 expert)**: **~3.5–5.5 GB** on a **single RTX 3090 (24 GB)** or **single Ascend 910 (32 GB)** (vs ~11–14 GB if unfreezing the full VLM)
+   - **Wall-clock time**: **~3–6 minutes** on 1× RTX 3090 for 1,000 Flow-Matching steps (`batch_size=16`)
+   - *Base weights*: place `work/smolvla-libero` and `work/smolvlm-processor` under `./base_weights/` (or pass `--base-weights` / `--processor`).
+2. **Lightweight Fast CNN Baseline (`{model_out}`, `chunk_size={chunk_size}`)**:
+   - **VRAM usage**: **< 1.5 GB** on 1× RTX 3090 / 1× Ascend 910, runs **< 1 minute** for `{epochs}` epochs.
 
-## Quick Start on RTX 3090 Server
+## Quick Start on RTX 3090 Server (SmolVLA)
 ```bash
 pip install -r requirements.txt
-bash run_3090.sh
+bash run_3090_smolvla.sh
 ```
 
-## Quick Start on Huawei Ascend 910 Server
+## Quick Start on Huawei Ascend 910 Server (SmolVLA)
 ```bash
 # Ensure torch + torch_npu are activated in your CANN conda env
-bash run_ascend910.sh
+bash run_ascend910_smolvla.sh
 ```
 
 ## Drop Weights Back Into RoboForge
 After training finishes, copy the generated artifacts back into `outputs/vla-lab/`:
-- `datasets/models/{model_out}.npz`
-- `datasets/models/{model_out}.pt`
-- `datasets/reports/train_{model_out}.json`
+- `datasets/models/so100_smolvla/` (`config.json`, `model.safetensors`, `so100_stats.json`)
+- `datasets/reports/train_so100_smolvla.json`
 
-*(Even if only `{model_out}.pt` is copied back, `vlab/visual_infer.py` automatically converts `.pt` to `.npz` on load.)*
+Once copied back, `so100_smolvla (front+wrist)` appears automatically in the RoboForge toolbar (`运行视觉策略`) for live closed-loop MuJoCo rollout.
 """
     (out_dir / "README_SERVER_TRAIN.md").write_text(readme, encoding="utf-8", newline="\n")
     return out_dir

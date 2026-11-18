@@ -610,25 +610,37 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         entries: dict[str, dict] = {}
         if models_dir.is_dir():
             for p in sorted(models_dir.iterdir()):
-                if p.suffix not in {".pt", ".npz"}:
-                    continue
-                mid = p.stem
-                rec = entries.setdefault(mid, {
-                    "id": mid, "has_pt": False, "has_npz": False,
-                    "camera_keys": ["front"], "runnable": False,
-                })
-                if p.suffix == ".pt":
-                    rec["has_pt"] = True
-                if p.suffix == ".npz":
-                    rec["has_npz"] = True
-                    rec["runnable"] = True
+                if p.is_dir() and (p / "config.json").is_file() and (p / "so100_stats.json").is_file():
+                    mid = p.name
                     try:
-                        import numpy as np
-                        with np.load(p, allow_pickle=False) as d:
-                            if "camera_keys" in d:
-                                rec["camera_keys"] = json.loads(str(d["camera_keys"].item()))
+                        st = json.loads((p / "so100_stats.json").read_text(encoding="utf-8"))
                     except Exception:
-                        pass
+                        st = {}
+                    rec = entries.setdefault(mid, {
+                        "id": mid, "has_pt": True, "has_npz": False,
+                        "camera_keys": list(st.get("camera_keys") or ["front", "wrist"]),
+                        "runnable": True, "arch": str(st.get("arch") or "smolvla"),
+                    })
+                elif p.suffix in {".pt", ".npz"}:
+                    mid = p.stem
+                    rec = entries.setdefault(mid, {
+                        "id": mid, "has_pt": False, "has_npz": False,
+                        "camera_keys": ["front"], "runnable": False,
+                    })
+                    if p.suffix == ".pt":
+                        rec["has_pt"] = True
+                    if p.suffix == ".npz":
+                        rec["has_npz"] = True
+                        rec["runnable"] = True
+                        try:
+                            import numpy as np
+                            with np.load(p, allow_pickle=False) as d:
+                                if "camera_keys" in d:
+                                    rec["camera_keys"] = json.loads(str(d["camera_keys"].item()))
+                        except Exception:
+                            pass
+                else:
+                    continue
                 rp = reports_dir / f"train_{mid}.json"
                 if rp.is_file():
                     try:

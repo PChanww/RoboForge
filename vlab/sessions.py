@@ -90,11 +90,16 @@ class Session:
     def policy(self, token, model_id: str = "hackathon_vla_bc", epoch=None, steps: int = 1):
         n = max(1, min(int(steps or 1), 50))
         def _run():
-            from .visual_infer import VisualPolicyRunner
             self._guard(token, None, epoch)
             runner = self._policy_runners.get(model_id)
             if runner is None:
-                runner = VisualPolicyRunner(self.env.lab_root, model_id)
+                smolvla_stats = self.env.lab_root / "datasets" / "models" / model_id / "so100_stats.json"
+                if smolvla_stats.is_file():
+                    from .smolvla_infer import SmolVLAPolicyRunner
+                    runner = SmolVLAPolicyRunner(self.env.lab_root, model_id)
+                else:
+                    from .visual_infer import VisualPolicyRunner
+                    runner = VisualPolicyRunner(self.env.lab_root, model_id)
                 self._policy_runners[model_id] = runner
             if self.env.scheduler.tick == 0:
                 runner.reset()
@@ -135,6 +140,9 @@ class Session:
             return self._owner
 
     def close(self):
+        for runner in self._policy_runners.values():
+            if hasattr(runner, "close"):
+                runner.close()
         self._executor.submit(self.env.close).result()
         self._executor.shutdown(wait=True)
 
