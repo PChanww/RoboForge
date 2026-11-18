@@ -13,7 +13,16 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
-LAB = Path(__file__).resolve().parents[1] / "vla-lab"
+def _find_lab(start: Path) -> Path:
+    """Locate the vla-lab root whether this script sits in outputs/ or in docs/."""
+    for p in [start, *start.parents]:
+        for cand in (p, p / "vla-lab"):
+            if (cand / "vlab" / "generation").is_dir() and (cand / "configs").is_dir():
+                return cand
+    return start.parents[1] / "vla-lab"
+
+
+LAB = _find_lab(Path(__file__).resolve().parent)
 sys.path.insert(0, str(LAB))
 
 from fastapi import FastAPI
