@@ -55,6 +55,8 @@ export const api = {
   generationStatus: () => req<any>('GET', '/api/v1/generation-jobs'),
   sceneAssets: () => req<{ scenes: any[] }>('GET', '/api/v1/scene-assets'),
   sceneAsset: (id: string, revision?: number) => req<any>('GET', `/api/v1/scene-assets/${encodeURIComponent(id)}${revision ? '?revision='+revision : ''}`),
+  scenePointCloud: (id: string, revision = 1, maxPoints = 24000) =>
+    req<any>('GET', `/api/v1/scene-assets/${encodeURIComponent(id)}/revisions/${revision}/point-cloud?max_points=${maxPoints}`),
   sceneValidate: (id: string, revision?: number) => req<any>('POST', `/api/v1/scene-assets/${encodeURIComponent(id)}/validate${revision ? '?revision='+revision : ''}`, {}),
   sceneImport: (body: any) => req<any>('POST', '/api/v1/scene-assets/import', body),
   bindScene: (pid: string, body: any) => req<any>('POST', `/api/v1/projects/${pid}/bind-scene`, body),

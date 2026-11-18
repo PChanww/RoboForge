@@ -1,20 +1,21 @@
-import { Suspense, useEffect, useMemo, useRef } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useThree, useLoader } from '@react-three/fiber'
 import { OrbitControls, Grid, Line, TransformControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { create } from 'zustand'
+import { api } from '../api'
 import { useStore, activeRobot } from '../store'
 import type { Link } from '../types'
 import { cn } from './ui'
 
 export const useView = create<{
-  grid: boolean; axes: boolean; frustums: boolean; colliders: boolean;
+  grid: boolean; axes: boolean; frustums: boolean; colliders: boolean; skybox: boolean; splatCloud: boolean;
   cmd: { type: string; seq: number };
-  toggle: (k: 'grid' | 'axes' | 'frustums' | 'colliders') => void;
+  toggle: (k: 'grid' | 'axes' | 'frustums' | 'colliders' | 'skybox' | 'splatCloud') => void;
   send: (type: string) => void;
 }>((set) => ({
-  grid: true, axes: true, frustums: true, colliders: false,
+  grid: true, axes: true, frustums: true, colliders: false, skybox: true, splatCloud: false,
   cmd: { type: '', seq: 0 },
   toggle: (k) => set((s) => ({ [k]: !s[k] } as any)),
   send: (type) => set((s) => ({ cmd: { type, seq: s.cmd.seq + 1 } })),
@@ -274,10 +275,103 @@ function Cameras() {
   )
 }
 
+function WorldPanoramaDome({ sceneId, revision, onReady }: { sceneId: string; revision: number; onReady?: (ok: boolean) => void }) {
+  const [tex, setTex] = useState<THREE.Texture | null>(null)
+  useEffect(() => {
+    let alive = true
+    let loaded: THREE.Texture | null = null
+    setTex(null)
+    onReady?.(false)
+    const url = `/api/v1/scene-assets/${encodeURIComponent(sceneId)}/revisions/${revision}/preview`
+    api.sceneAsset(sceneId, revision).then((m) => {
+      if (!alive || !m?.preview_asset) return
+      new THREE.TextureLoader().load(
+        url,
+        (t) => {
+          if (!alive) { t.dispose(); return }
+          t.colorSpace = THREE.SRGBColorSpace
+          t.needsUpdate = true
+          loaded = t
+          setTex(t)
+          onReady?.(true)
+        },
+        undefined,
+        () => {
+          if (alive) { setTex(null); onReady?.(false) }
+        },
+      )
+    }).catch(() => {
+      if (alive) { setTex(null); onReady?.(false) }
+    })
+    return () => {
+      alive = false
+      if (loaded) loaded.dispose()
+      onReady?.(false)
+    }
+  }, [sceneId, revision])
+  if (!tex) return null
+  return (
+    <mesh position={[0, 0, 0.35]} rotation={[Math.PI / 2, 0, 0]} renderOrder={-10}>
+      <sphereGeometry args={[6.0, 48, 32]} />
+      <meshBasicMaterial map={tex} side={THREE.BackSide} depthWrite={false} />
+    </mesh>
+  )
+}
+
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64)
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+  return out
+}
+
+function WorldGaussianCloud({ sceneId, revision, inst }:
+  { sceneId: string; revision: number; inst?: { position: number[]; quaternion_xyzw: number[]; uniform_scale: number } | null }) {
+  const [cloud, setCloud] = useState<{ geo: THREE.BufferGeometry; floorZ: number } | null>(null)
+  useEffect(() => {
+    let alive = true
+    let built: THREE.BufferGeometry | null = null
+    api.scenePointCloud(sceneId, revision, 24000).then((data) => {
+      if (!alive || !data?.positions_f32_b64 || !data?.colors_u8_b64) return
+      const posBytes = b64ToBytes(data.positions_f32_b64)
+      const colBytes = b64ToBytes(data.colors_u8_b64)
+      const positions = new Float32Array(posBytes.buffer, posBytes.byteOffset, Math.floor(posBytes.byteLength / 4))
+      const colors = new Float32Array(colBytes.length)
+      for (let i = 0; i < colBytes.length; i++) colors[i] = colBytes[i] / 255
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+      geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+      built = geo
+      setCloud({ geo, floorZ: Number(data.auto_floor_offset_z || 0) })
+    }).catch(() => {
+      if (alive) setCloud(null)
+    })
+    return () => {
+      alive = false
+      if (built) built.dispose()
+    }
+  }, [sceneId, revision])
+  if (!cloud) return null
+  const px = inst ? inst.position[0] : 1.5
+  const py = inst ? inst.position[1] : -1.0
+  const pz = (inst ? inst.position[2] : 0) + cloud.floorZ
+  const q = inst?.quaternion_xyzw ? (inst.quaternion_xyzw as [number, number, number, number]) : ([0, 0, 0, 1] as [number, number, number, number])
+  const sc = inst?.uniform_scale || 1
+  return (
+    <points geometry={cloud.geo} position={[px, py, pz]} quaternion={q} scale={sc}>
+      <pointsMaterial size={0.032} vertexColors transparent opacity={0.9} sizeAttenuation />
+    </points>
+  )
+}
+
 function StaticScene() {
   const config = useStore((s) => s.config)
   const obs = useStore((s) => s.observation)
   const showColliders = useView(s => s.colliders)
+  const showSkybox = useView(s => s.skybox)
+  const showSplatCloud = useView(s => s.splatCloud)
+  const [panoReady, setPanoReady] = useState(false)
+  const [envMeta, setEnvMeta] = useState<any>(null)
   const goal = config?.task.goal_xy ?? [0.133, 0.05]
   const goalSurface = config?.task.goal_surface_m ?? 0.009
   const goalHalf = config?.task.goal_half_extents ?? [0.074, 0.069]
@@ -285,22 +379,44 @@ function StaticScene() {
   const wsZ = config?.scene.work_surface_z ?? 0
   const trayThickness = Math.max(0.004, goalSurface - wsZ)
   const environment = config?.scene.environment
+  useEffect(() => {
+    let alive = true
+    if (!environment) { setEnvMeta(null); return }
+    api.sceneAsset(environment.asset_id, environment.revision)
+      .then((m) => { if (alive) setEnvMeta(m) })
+      .catch(() => { if (alive) setEnvMeta(null) })
+    return () => { alive = false }
+  }, [environment?.asset_id, environment?.revision])
   const assetNodes = config?.scene.asset_nodes || []
+  const hasWorkbench = assetNodes.some((n) => n.node_id === 'demo_workbench')
+  const bgReady = !environment || envMeta !== null
+  const hasGaussianEnv = Boolean(environment && envMeta?.ply_kind === 'gaussian')
+  const worldId = hasGaussianEnv ? environment!.asset_id : 'world_586c79650960'
+  const worldRev = hasGaussianEnv ? environment!.revision : 1
   const nodeColliderRefs = new Set(assetNodes.map((n) => n.collider_ref).filter(Boolean) as string[])
   const nodeColliderPrefixes = Array.from(nodeColliderRefs).map((r) => (r.endsWith('_part_0') ? r.slice(0, -7) + '_part_' : r + '_part_'))
   const isNodeCollider = (name: string) => nodeColliderRefs.has(name) || nodeColliderPrefixes.some((p) => name.startsWith(p))
   return (
     <group>
-      <mesh position={[0, 0, -0.061]}><planeGeometry args={[4, 4]} /><meshStandardMaterial color="#303b40" side={THREE.DoubleSide} /></mesh>
-      {config?.scene.use_default_table !== false && <mesh position={[0, 0, wsZ - 0.028]} receiveShadow><boxGeometry args={[0.64, 0.43, 0.056]} /><meshStandardMaterial color="#4a5c60" roughness={.8} /></mesh>}
-      {environment && <group position={environment.position as [number, number, number]}
+      {showSkybox && bgReady && <WorldPanoramaDome sceneId={worldId} revision={worldRev} onReady={setPanoReady} />}
+      {showSplatCloud && bgReady && (
+        <WorldGaussianCloud sceneId={worldId} revision={worldRev}
+          inst={hasGaussianEnv ? environment : null} />
+      )}
+      {(!showSkybox || !panoReady) && (
+        <mesh position={[0, 0, -0.061]}><planeGeometry args={[4, 4]} /><meshStandardMaterial color="#303b40" side={THREE.DoubleSide} /></mesh>
+      )}
+      {config?.scene.use_default_table !== false && !hasWorkbench && (
+        <mesh position={[0, 0, wsZ - 0.028]} receiveShadow><boxGeometry args={[0.64, 0.43, 0.056]} /><meshStandardMaterial color="#4a5c60" roughness={.8} /></mesh>
+      )}
+      {environment && envMeta?.ply_kind === 'mesh' && envMeta?.visual_asset && <group position={environment.position as [number, number, number]}
         quaternion={environment.quaternion_xyzw as [number, number, number, number]} scale={environment.uniform_scale}>
         <MeshPart url={`/api/v1/scene-assets/${encodeURIComponent(environment.asset_id)}/revisions/${environment.revision}/visual.obj`} color="#9ea8b2" />
       </group>}
       {assetNodes.map((n) => {
         const dynPose = n.role === 'dynamic' ? obs?.state?.dynamic_objects?.[n.node_id] : undefined
         const url = `/api/v1/asset-mesh?ref=${encodeURIComponent(n.asset_ref)}`
-        const tint = n.role === 'dynamic' ? '#e08a4e' : '#9ea8b2'
+        const tint = n.role === 'dynamic' ? '#e08a4e' : (n.node_id === 'demo_workbench' ? '#58676e' : '#9ea8b2')
         if (dynPose) {
           return (
             <group key={n.node_id}>
@@ -405,7 +521,7 @@ function ViewRig() {
 
   return (
     <>
-      <OrbitControls ref={orbit} makeDefault target={[0, 0.13, -0.02]} maxPolarAngle={Math.PI / 2} />
+      <OrbitControls ref={orbit} makeDefault target={[0, 0.13, -0.02]} maxPolarAngle={Math.PI / 2} maxDistance={4.8} />
       {grid && <Grid args={[2, 2]} position={[0, -0.06, 0]} cellColor="#26333a" sectionColor="#30414b" fadeDistance={3} infiniteGrid />}
       {selPose && (
         <TransformControls ref={transform} mode="translate" size={0.6}
@@ -436,9 +552,9 @@ function ViewToolbar() {
       <button className={btn} onClick={() => v.send('front')}>正</button>
       <button className={btn} onClick={() => v.send('side')}>侧</button>
       <button className={btn} onClick={() => v.send('fullscreen')}>全屏</button>
-      {(['grid', 'axes', 'frustums', 'colliders'] as const).map((k) => (
+      {(['grid', 'axes', 'frustums', 'colliders', 'skybox', 'splatCloud'] as const).map((k) => (
         <button key={k} className={cn(btn, v[k] && 'text-accent border-accent')} onClick={() => v.toggle(k)}>
-          {{ grid: '网格', axes: '关节轴', frustums: '视锥', colliders: '碰撞' }[k]}
+          {{ grid: '网格', axes: '关节轴', frustums: '视锥', colliders: '碰撞', skybox: '全景', splatCloud: '点云' }[k]}
         </button>
       ))}
       {v.colliders && (

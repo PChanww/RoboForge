@@ -21,6 +21,27 @@ from .import_asset import MAX_FILE, parse_geometry, read_glb
 REGISTRY = Path(__file__).resolve().parents[1] / "assets" / "imported"
 
 
+def _maybe_level_flat_mesh(mesh) -> None:
+    """Level shallow/planar meshes tilted in 3D generator output (e.g. 20-45 deg presentation pitch)."""
+    if len(mesh.vertices) < 12:
+        return
+    pts = np.asarray(mesh.vertices, dtype=np.float64)
+    cov = np.cov((pts - pts.mean(axis=0)).T)
+    w_eig, u_eig = np.linalg.eigh(cov)
+    az = u_eig[:, 0].copy()
+    if w_eig[1] > 1e-12 and w_eig[0] < 0.15 * w_eig[1] and 0.40 < abs(az[2]) < 0.998:
+        if az[2] < 0:
+            az = -az
+        ax = u_eig[:, 2].copy()
+        ay = np.cross(az, ax)
+        ay /= max(float(np.linalg.norm(ay)), 1e-12)
+        ax = np.cross(ay, az)
+        ax /= max(float(np.linalg.norm(ax)), 1e-12)
+        rot_pca = np.eye(4, dtype=np.float64)
+        rot_pca[:3, :3] = np.column_stack([ax, ay, az]).T
+        mesh.apply_transform(rot_pca)
+
+
 def _check_dims(height, width, depth, radius, mass):
     for name, v in (("height", height), ("width", width), ("depth", depth), ("radius", radius)):
         if v is not None and (not np.isfinite(v) or not 0 < v < 1):
@@ -57,24 +78,10 @@ def register_object(path: Path, output: Path, *, kind: str = "task_object", role
     low, high = mesh.bounds
     if np.any(high - low < 1e-9):
         raise ValueError("Mesh has a flat or zero-volume bounding box.")
-    # Level shallow/planar compound trays tilted in 3D generator output (e.g. 20-45 deg presentation pitch)
-    if collision_mode == "compound" and len(mesh.vertices) >= 12:
-        pts = np.asarray(mesh.vertices, dtype=np.float64)
-        cov = np.cov((pts - pts.mean(axis=0)).T)
-        w_eig, u_eig = np.linalg.eigh(cov)
-        az = u_eig[:, 0].copy()
-        if w_eig[1] > 1e-12 and w_eig[0] < 0.15 * w_eig[1] and 0.40 < abs(az[2]) < 0.998:
-            if az[2] < 0:
-                az = -az
-            ax = u_eig[:, 2].copy()
-            ay = np.cross(az, ax)
-            ay /= max(float(np.linalg.norm(ay)), 1e-12)
-            ax = np.cross(ay, az)
-            ax /= max(float(np.linalg.norm(ax)), 1e-12)
-            rot_pca = np.eye(4, dtype=np.float64)
-            rot_pca[:3, :3] = np.column_stack([ax, ay, az]).T
-            mesh.apply_transform(rot_pca)
-            low, high = mesh.bounds
+    is_shallow_flat = (height is not None and width is not None and depth is not None and height <= 0.25 * min(width, depth))
+    if collision_mode == "compound" or is_shallow_flat:
+        _maybe_level_flat_mesh(mesh)
+        low, high = mesh.bounds
     orig_ext = high - low
     # Align dominant horizontal axis with requested (width, depth) aspect before scaling
     if width is not None and depth is not None and (width - depth) * (orig_ext[0] - orig_ext[1]) < -1e-4:
@@ -246,7 +253,14 @@ def register_environment_mesh(
     low, high = mesh.bounds
     if np.any(high - low < 1e-9):
         raise ValueError("Environment mesh has zero-volume bounds")
+    if height is not None and width is not None and depth is not None and height <= 0.25 * min(width, depth):
+        _maybe_level_flat_mesh(mesh)
+        low, high = mesh.bounds
     orig_ext = high - low
+    if width is not None and depth is not None and (width - depth) * (orig_ext[0] - orig_ext[1]) < -1e-4:
+        mesh.apply_transform([[0, -1, 0, 0], [1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
+        low, high = mesh.bounds
+        orig_ext = high - low
     linear = sum(v is not None for v in (height, width, depth))
     if linear >= 2:
         fallback = (height / orig_ext[2]) if height is not None else ((width / orig_ext[0]) if width is not None else (depth / orig_ext[1]))

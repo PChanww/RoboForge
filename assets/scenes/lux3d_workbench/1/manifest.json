@@ -1,0 +1,263 @@
+{
+  "asset_id": "lux3d_workbench",
+  "revision": 1,
+  "visual_asset": "visual.obj",
+  "source_mesh": "original.glb",
+  "sha256_glb": "0b239115aeabe872cf28df8baa81e5293d63a41173a6204937b6d6a660cab877",
+  "ply_kind": "mesh",
+  "up_axis": "Z",
+  "unit_scale": 1.0,
+  "normalized_units": true,
+  "calibrated": true,
+  "physics_status": "compound_boxes",
+  "bounds_m": [
+    [
+      -0.33,
+      -0.225,
+      0.0
+    ],
+    [
+      0.33,
+      0.225,
+      0.056
+    ]
+  ],
+  "actual_extents_m": [
+    0.66,
+    0.45,
+    0.056
+  ],
+  "triangles": 38416,
+  "colliders": [
+    {
+      "name": "lux3d_workbench_col_0",
+      "shape": "box",
+      "full_size_m": [
+        0.66,
+        0.45,
+        0.014
+      ],
+      "position": [
+        0.0,
+        -0.0,
+        0.007
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "tag": "environment_mesh_decomp"
+    },
+    {
+      "name": "lux3d_workbench_col_1",
+      "shape": "box",
+      "full_size_m": [
+        0.073333,
+        0.4125,
+        0.042
+      ],
+      "position": [
+        -0.293333,
+        0.01875,
+        0.035
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "tag": "environment_mesh_decomp"
+    },
+    {
+      "name": "lux3d_workbench_col_2",
+      "shape": "box",
+      "full_size_m": [
+        0.073333,
+        0.375,
+        0.042
+      ],
+      "position": [
+        0.293333,
+        -0.0,
+        0.035
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "tag": "environment_mesh_decomp"
+    },
+    {
+      "name": "lux3d_workbench_col_3",
+      "shape": "box",
+      "full_size_m": [
+        0.66,
+        0.0375,
+        0.042
+      ],
+      "position": [
+        0.0,
+        -0.20625,
+        0.035
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "tag": "environment_mesh_decomp"
+    },
+    {
+      "name": "lux3d_workbench_col_4",
+      "shape": "box",
+      "full_size_m": [
+        0.586667,
+        0.0375,
+        0.042
+      ],
+      "position": [
+        0.036667,
+        0.20625,
+        0.035
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "tag": "environment_mesh_decomp"
+    }
+  ],
+  "compound_proxy": {
+    "shape": "compound",
+    "boxes": [
+      {
+        "shape": "box",
+        "size_m": [
+          0.66,
+          0.44999999999999996,
+          0.014
+        ],
+        "position": [
+          0.0,
+          -2.7755575615628914e-17,
+          0.007
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      {
+        "shape": "box",
+        "size_m": [
+          0.07333333333333333,
+          0.4125,
+          0.042
+        ],
+        "position": [
+          -0.29333333333333333,
+          0.01874999999999999,
+          0.035
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      {
+        "shape": "box",
+        "size_m": [
+          0.07333333333333333,
+          0.375,
+          0.042
+        ],
+        "position": [
+          0.2933333333333333,
+          -2.7755575615628914e-17,
+          0.035
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      {
+        "shape": "box",
+        "size_m": [
+          0.66,
+          0.0375,
+          0.042
+        ],
+        "position": [
+          0.0,
+          -0.20625000000000002,
+          0.035
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      {
+        "shape": "box",
+        "size_m": [
+          0.5866666666666667,
+          0.0375,
+          0.042
+        ],
+        "position": [
+          0.03666666666666668,
+          0.20624999999999996,
+          0.035
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      }
+    ],
+    "box_count": 5,
+    "fill_ratio": 0.5139,
+    "concave_detected": true,
+    "grid_shape": [
+      18,
+      12,
+      4
+    ],
+    "floor_box_index": 0,
+    "basis": "voxel_box_decomposition"
+  },
+  "files": {
+    "visual.obj": "df0bebe9abf66e5f177c1214bb921522f59537d014910b7af0f0f37440409895"
+  },
+  "source": "lux3d",
+  "generation_id": "8274897",
+  "prompt": "A single clean modern robotics laboratory workbench platform with a flat rectangular top surface, chamfered metallic frame edges, dark slate tabletop, isolated object, no robot, no tools on top, no background",
+  "spec_id": null,
+  "spec_revision": null,
+  "spec_hash": null,
+  "job_id": null,
+  "color_rgb": [
+    0.1215582003724652,
+    0.1270823838705007,
+    0.13050332512097315
+  ]
+}

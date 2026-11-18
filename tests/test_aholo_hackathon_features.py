@@ -490,3 +490,21 @@ def test_expert_step_batching_dynamic_colliders_and_tray_orientation(tmp_path, m
     assert sj["tick"] == obs0["tick"] + 10
     assert "metrics" in sj and isinstance(sj["metrics"]["grasped"], bool)
     c.delete(f"/api/v1/sessions/{sid}")
+
+    # Verify demo_workbench visual node and Gaussian point-cloud streaming endpoint
+    sc = c.get("/api/v1/projects/hackathon_demo/scene").json()
+    assert any(n["node_id"] == "demo_workbench" and n["role"] == "visual_only" for n in sc["asset_nodes"])
+
+    world_src = LAB / "assets" / "scenes" / "world_586c79650960" / "1"
+    if (world_src / "manifest.json").is_file():
+        shutil.copytree(world_src, lab / "assets" / "scenes" / "world_586c79650960" / "1", dirs_exist_ok=True)
+        pc = c.get("/api/v1/scene-assets/world_586c79650960/revisions/1/point-cloud?max_points=1000")
+        assert pc.status_code == 200, pc.text
+        pcj = pc.json()
+        assert pcj["count"] == 1000
+        assert isinstance(pcj["auto_floor_offset_z"], float)
+        pos_raw = base64.b64decode(pcj["positions_f32_b64"])
+        col_raw = base64.b64decode(pcj["colors_u8_b64"])
+        assert len(pos_raw) == 1000 * 12 and len(col_raw) == 1000 * 3
+    missing = c.get("/api/v1/scene-assets/no_such_scene/revisions/1/point-cloud")
+    assert missing.status_code == 404

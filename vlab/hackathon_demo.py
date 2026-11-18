@@ -60,12 +60,25 @@ def _build_cube_glb(dest_glb: Path, size: float = 0.036) -> None:
     dest_glb.write_bytes(cube.export(file_type="glb"))
 
 
+def _build_workbench_glb(dest_glb: Path, outer_w: float = 0.66, outer_d: float = 0.45, height: float = 0.056) -> None:
+    top = trimesh.creation.box([outer_w, outer_d, height * 0.6],
+                               transform=trimesh.transformations.translation_matrix([0.0, 0.0, height * 0.7]))
+    frame = trimesh.creation.box([outer_w * 0.94, outer_d * 0.92, height * 0.4],
+                                 transform=trimesh.transformations.translation_matrix([0.0, 0.0, height * 0.2]))
+    bench = trimesh.util.concatenate([frame, top])
+    rot_y_up = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=np.float64)
+    bench.apply_transform(rot_y_up)
+    bench.visual.vertex_colors = [88, 102, 110, 255]
+    dest_glb.write_bytes(bench.export(file_type="glb"))
+
+
 def ensure_demo_assets(lab_root: Path) -> dict:
     lab_root = Path(lab_root)
     repo_imported = Path(__file__).resolve().parents[1] / "assets" / "imported"
     tray_dir = lab_root / "assets" / "imported" / "demo-concave-tray"
     cube_dir = lab_root / "assets" / "imported" / "demo-dynamic-cube"
-    for slug, dst_dir in (("demo-concave-tray", tray_dir), ("demo-dynamic-cube", cube_dir)):
+    bench_dir = lab_root / "assets" / "imported" / "demo-workbench"
+    for slug, dst_dir in (("demo-concave-tray", tray_dir), ("demo-dynamic-cube", cube_dir), ("demo-workbench", bench_dir)):
         src_dir = repo_imported / slug
         if not (dst_dir / "manifest.json").is_file() and (src_dir / "manifest.json").is_file() and src_dir.resolve() != dst_dir.resolve():
             dst_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -93,9 +106,21 @@ def ensure_demo_assets(lab_root: Path) -> dict:
                 source="other", source_detail="RoboForge dynamic desktop companion block",
                 prompt="Orange wooden calibration cube 3.6 cm",
             )
+        if not (bench_dir / "manifest.json").is_file():
+            bench_glb = tmp / "workbench.glb"
+            _build_workbench_glb(bench_glb)
+            register_object(
+                bench_glb, bench_dir,
+                kind="static_prop", role="static",
+                width=0.66, depth=0.45, height=0.056, mass=2.5,
+                source="other", source_detail="RoboForge laboratory workbench platform",
+                prompt="Modern robotics laboratory workbench platform 66x45x5.6 cm",
+                collision_mode="primitive",
+            )
     tray_mf = json.loads((tray_dir / "manifest.json").read_text(encoding="utf-8"))
     cube_mf = json.loads((cube_dir / "manifest.json").read_text(encoding="utf-8"))
-    return {"tray": tray_mf, "cube": cube_mf}
+    bench_mf = json.loads((bench_dir / "manifest.json").read_text(encoding="utf-8"))
+    return {"tray": tray_mf, "cube": cube_mf, "workbench": bench_mf}
 
 
 def setup_hackathon_demo(
@@ -145,6 +170,12 @@ def setup_hackathon_demo(
         goal_half_extents=[0.072, 0.052],
         goal_surface_m=goal_surface,
         asset_nodes=[
+            AssetNode(
+                node_id="demo_workbench",
+                asset_ref="imported/demo-workbench",
+                role=AssetRole.visual_only,
+                position=[0.0, 0.0, float(support_plane_z) - 0.0556],
+            ),
             AssetNode(
                 node_id="demo_tray",
                 asset_ref="imported/demo-concave-tray",

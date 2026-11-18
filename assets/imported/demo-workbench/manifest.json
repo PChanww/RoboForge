@@ -1,0 +1,91 @@
+{
+  "obj": "visual.obj",
+  "kind": "static_prop",
+  "role": "static",
+  "height_m": 0.056,
+  "width_m": 0.66,
+  "depth_m": 0.45,
+  "radius_m": null,
+  "mass_kg": 2.5,
+  "friction": null,
+  "bounds_m": [
+    [
+      -0.33009905576705934,
+      -0.2252270783533623,
+      0.0
+    ],
+    [
+      0.3299009442329407,
+      0.2247729216466377,
+      0.056
+    ]
+  ],
+  "actual_extents_m": [
+    0.66,
+    0.45,
+    0.056
+  ],
+  "up_axis": "Z",
+  "triangles": 38416,
+  "collision_proxy": {
+    "shape": "box",
+    "size_m": [
+      0.66,
+      0.45,
+      0.056
+    ],
+    "position": [
+      0,
+      0,
+      0.028
+    ],
+    "basis": "user_explicit"
+  },
+  "collision_proxy_desc": "axis-aligned box from mesh extents; no concave/interior contacts",
+  "compound_proxy": null,
+  "concave_detected": true,
+  "collision_mode": "primitive",
+  "calibrated": true,
+  "physics_status": "proxy_estimate",
+  "scale_mode": "bbox_anisotropic",
+  "scale_factors": [
+    0.44,
+    0.546591475363501,
+    0.06134250228420692
+  ],
+  "unsatisfied_dimensions": {},
+  "scale_basis": "anisotropic bbox scaling to user-specified dimensions",
+  "normalization": {
+    "source_up_axis": "y",
+    "scaled_to_height_m": 0.056,
+    "scale_mode": "bbox_anisotropic",
+    "scale_factors": [
+      0.44,
+      0.546591475363501,
+      0.06134250228420692
+    ],
+    "centered_footprint": true,
+    "original_extents_m": [
+      1.5,
+      0.8232839703559875,
+      0.9129070043563843
+    ]
+  },
+  "source": "lux3d",
+  "source_detail": "downloaded from authenticated Aholo API task",
+  "generation_id": "8274897",
+  "prompt": "A single clean modern robotics laboratory workbench platform with a flat rectangular top surface, chamfered metallic frame edges, dark slate tabletop, isolated object, no robot, no tools on top, no background",
+  "source_mesh": "original.glb",
+  "sha256_glb": "0b239115aeabe872cf28df8baa81e5293d63a41173a6204937b6d6a660cab877",
+  "spec_id": null,
+  "spec_revision": null,
+  "spec_hash": null,
+  "compiler_version": null,
+  "job_id": null,
+  "color_rgb": [
+    0.1215582003724652,
+    0.1270823838705007,
+    0.13050332512097315
+  ],
+  "color_basis": "area-weighted mean of material or indexed vertex colors; uniform simulator tint"
+}

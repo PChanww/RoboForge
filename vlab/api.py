@@ -665,6 +665,47 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
             raise HTTPException(404, "Scene has no preview image")
         return FileResponse(contained_file(d, name), media_type="image/jpeg")
 
+    @app.get("/api/v1/scene-assets/{asset_id}/revisions/{revision}/point-cloud")
+    def scene_point_cloud(asset_id: str, revision: int, max_points: int = 24000):
+        import base64
+        import numpy as np
+        from .gaussian import load_gaussians
+        try:
+            d, mf = load_scene(lab_root, asset_id, revision, physics=False)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc))
+        if mf.get("ply_kind") != "gaussian":
+            raise HTTPException(400, "Scene is not a gaussian point cloud")
+        ply_rel = next((k for k in mf.get("files", {}) if k.lower().endswith(".ply")), None)
+        if not ply_rel:
+            raise HTTPException(404, "Gaussian PLY file not found")
+        g = load_gaussians(contained_file(d, ply_rel))
+        means = g["means"]
+        op = g["opacity"]
+        rgb = g["rgb"]
+        sc = g["scales"].max(axis=1)
+        mask = (op >= 0.25) & (sc <= 0.08)
+        if int(mask.sum()) < 100:
+            mask = op >= 0.10
+        idx = np.flatnonzero(mask)
+        limit = max(500, min(int(max_points), 60000))
+        if len(idx) > limit:
+            order = np.argsort(-op[idx])[:limit]
+            idx = idx[order]
+        pts = np.ascontiguousarray(means[idx], dtype=np.float32)
+        cols = np.ascontiguousarray(np.clip(rgb[idx] * 255.0, 0, 255), dtype=np.uint8)
+        floor_p5 = float(np.percentile(pts[:, 2], 5)) if len(pts) else 0.0
+        return {
+            "asset_id": asset_id,
+            "revision": revision,
+            "count": int(len(pts)),
+            "auto_floor_offset_z": round(-floor_p5 - 0.06, 4),
+            "bbox_min": pts.min(axis=0).tolist() if len(pts) else [0, 0, 0],
+            "bbox_max": pts.max(axis=0).tolist() if len(pts) else [0, 0, 0],
+            "positions_f32_b64": base64.b64encode(pts.tobytes()).decode("ascii"),
+            "colors_u8_b64": base64.b64encode(cols.tobytes()).decode("ascii"),
+        }
+
     @app.put("/api/v1/projects/{pid}/scene")
     def commit_scene(pid: str, body: SceneCommitBody):
         def mutate(data):
