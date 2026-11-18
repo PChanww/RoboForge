@@ -1,0 +1,22 @@
+{
+ "type": "SmolVLA (450M VLM + Flow-Matching Action Expert, front+wrist+language+state)",
+ "arch": "smolvla",
+ "camera_keys": [
+  "front",
+  "wrist"
+ ],
+ "chunk_size": 16,
+ "steps": 3000,
+ "device": "cuda",
+ "total_params_m": 450.05,
+ "trainable_params_m": 99.88,
+ "vram_mb": 4234.1,
+ "episodes": 10,
+ "frames": 745,
+ "train_frames": 524,
+ "val_mse": 0.01587,
+ "gen_mse": 0.04037,
+ "dataset": "vla_multi_task",
+ "render_meta": {},
+ "checkpoint_dir": "/home/pz/roboforge_smolvla/datasets/models/so100_smolvla_multi"
+}

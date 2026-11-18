@@ -18,6 +18,7 @@ interface State {
   running: boolean
   runMode: 'expert' | 'policy'
   policyModel: string
+  policyInstruction: string
   busy: boolean
   error: string | null
   logs: LogEntry[]
@@ -29,6 +30,7 @@ interface State {
   reset: (seed?: number) => Promise<void>
   step: () => Promise<void>
   setPolicyModel: (id: string) => void
+  setPolicyInstruction: (s: string) => void
   expertStep: () => Promise<void>
   policyStep: () => Promise<void>
   toggleRun: () => void
@@ -74,6 +76,7 @@ export const useStore = create<State>((set, get) => ({
   running: false,
   runMode: 'expert',
   policyModel: 'hackathon_vla_bc',
+  policyInstruction: (typeof localStorage !== 'undefined' ? (localStorage.getItem('vla_instruction') || '') : ''),
   busy: false,
   error: null,
   logs: [],
@@ -199,6 +202,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setPolicyModel: (id) => set({ policyModel: id }),
+  setPolicyInstruction: (s) => { try { localStorage.setItem('vla_instruction', s) } catch { /* ignore */ } set({ policyInstruction: s }) },
 
   expertStep: async () => {
     const { sessionId, token } = get()
@@ -215,12 +219,12 @@ export const useStore = create<State>((set, get) => ({
   },
 
   policyStep: async () => {
-    const { sessionId, token, policyModel } = get()
+    const { sessionId, token, policyModel, policyInstruction } = get()
     if (!sessionId || !token || stepping) return
     stepping = true
     try {
       const steps = typeof document !== 'undefined' && document.hidden ? 10 : 2
-      const obs = await api.policyStep(sessionId, token, policyModel, get().epoch, steps)
+      const obs = await api.policyStep(sessionId, token, policyModel, get().epoch, steps, policyInstruction)
       const metrics = obs.metrics ?? (await api.result(sessionId)).metrics
       set({ observation: obs, metrics })
       if (metrics?.success) { get().log(`视觉策略 [${policyModel}] 抓放成功！`); if (get().running) get().togglePolicyRun() }

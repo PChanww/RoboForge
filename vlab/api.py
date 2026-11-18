@@ -51,6 +51,7 @@ class ExpertStepBody(TokenBody):
 class PolicyStepBody(TokenBody):
     model_id: str = "hackathon_vla_bc"
     steps: int = 1
+    instruction: str | None = None  # language input for VLA policies; ignored by fixed-action models
 
 
 class ActionBody(BaseModel):
@@ -379,7 +380,8 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     def policy_step(sid: str, body: PolicyStepBody):
         s = _session(sid)
         try:
-            return s.policy(body.token, model_id=body.model_id, epoch=body.epoch, steps=body.steps)
+            return s.policy(body.token, model_id=body.model_id, epoch=body.epoch, steps=body.steps,
+                            instruction=body.instruction)
         except FileNotFoundError as exc:
             raise HTTPException(404, str(exc))
         except ValueError as exc:
@@ -620,12 +622,16 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
                         "id": mid, "has_pt": True, "has_npz": False,
                         "camera_keys": list(st.get("camera_keys") or ["front", "wrist"]),
                         "runnable": True, "arch": str(st.get("arch") or "smolvla"),
+                        "language": True,
+                        "default_instruction": st.get("task_instruction") or "",
+                        "instructions": list(st.get("instructions") or []),
                     })
                 elif p.suffix in {".pt", ".npz"}:
                     mid = p.stem
                     rec = entries.setdefault(mid, {
                         "id": mid, "has_pt": False, "has_npz": False,
                         "camera_keys": ["front"], "runnable": False,
+                        "language": False,
                     })
                     if p.suffix == ".pt":
                         rec["has_pt"] = True

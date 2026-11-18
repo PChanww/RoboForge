@@ -215,12 +215,15 @@ def main():
 
     tok = policy.model.vlm_with_expert.processor.tokenizer
     tok.padding_side = "right"
-    unique_task = tasks[0].rstrip() + "\n"
+    # Per-sample task instructions: the dataset carries a task string per frame.
+    # A general VLA must condition on each sample's own instruction, not one global prompt.
+    sample_tasks = [str(t or "Pick up the object and place it inside the tray.").rstrip() + "\n" for t in tasks]
     lang_tok = tok(
-        [unique_task], padding="max_length", max_length=cfg.tokenizer_max_length, truncation=True, return_tensors="pt"
+        sample_tasks, padding="max_length", max_length=cfg.tokenizer_max_length, truncation=True, return_tensors="pt"
     )
-    single_ids = lang_tok.input_ids.to(dev)
-    single_mask = lang_tok.attention_mask.bool().to(dev)
+    lang_ids = lang_tok.input_ids.to(dev)          # [n_total, L] — one row per sample
+    lang_mask = lang_tok.attention_mask.bool().to(dev)
+    instructions = sorted({str(t).strip() for t in tasks if t and str(t).strip()})
 
     # Precompute frozen vision+language prefix tokens once (exact since vlm is frozen)
     use_bf16 = dev.type in ("cuda", "npu")
@@ -235,8 +238,8 @@ def main():
         mini = {f"observation.images.{c}": cam_tensors[c][start:end].to(dev) for c in camera_keys}
         imgs, img_masks = policy.prepare_images(mini)
         b = end - start
-        lt = single_ids.expand(b, -1)
-        lm = single_mask.expand(b, -1)
+        lt = lang_ids[start:end]
+        lm = lang_mask[start:end]
         with torch.amp.autocast(device_type=dev.type, dtype=torch.bfloat16, enabled=use_bf16):
             emb_c, mask_c = _embed_frozen_img_lang(policy, imgs, img_masks, lt, lm)
         cached_embs.append(emb_c.cpu())
@@ -334,8 +337,8 @@ def main():
             b = len(sub)
             batch = {
                 "observation.state": sn[sub].to(dev),
-                "observation.language.tokens": single_ids.expand(b, -1),
-                "observation.language.attention_mask": single_mask.expand(b, -1),
+                "observation.language.tokens": lang_ids[sub],
+                "observation.language.attention_mask": lang_mask[sub],
                 **{f"observation.images.{c}": cam_tensors[c][sub].to(dev) for c in camera_keys},
             }
             zero_noise = torch.zeros((b, cfg.chunk_size, cfg.max_action_dim), device=dev, dtype=torch.float32)
@@ -376,7 +379,9 @@ def main():
         "chunk_size": int(args.chunk_size),
         "replan_steps": 4,
         "state_joints": source.get("joints") or JOINTS,
-        "task_instruction": tasks[0],
+        "task_instruction": (instructions[0] if instructions else tasks[0]),
+        "instructions": instructions,
+        "task_by_episode": {int(e): str(t) for e, t in zip(ep.tolist(), tasks)},
         "state_mean": smean.numpy().tolist(),
         "state_std": sstd.numpy().tolist(),
         "action_mean": amean.numpy().tolist(),

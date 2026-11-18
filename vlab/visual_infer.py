@@ -171,7 +171,9 @@ class VisualPolicyRunner:
             return out.reshape(self.chunk_size, 4)
         return out
 
-    def act(self, observation: dict) -> list[float]:
+    def act(self, observation: dict, instruction: str | None = None) -> list[float]:
+        # Fixed-action (image BC) policy: language input is accepted for a uniform
+        # contract with VLA runners but intentionally ignored.
         images = observation.get("images") or {}
         chans = []
         for cam in self.camera_keys:

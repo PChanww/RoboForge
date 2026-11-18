@@ -119,7 +119,8 @@ class SmolVLAPolicyRunner:
             + [float(st["gripper"]) if st.get("gripper") is not None else 0.0]
         )
 
-    def act(self, observation: dict) -> list[float]:
+    def act(self, observation: dict, instruction: str | None = None) -> list[float]:
+        effective_instruction = (instruction or "").strip() or self.instruction
         need_replan = (self._step_idx % self.replan_every == 0) or not self._chunks
         if need_replan:
             images = observation.get("images") or {}
@@ -133,7 +134,7 @@ class SmolVLAPolicyRunner:
                 "cmd": "act",
                 "images": imgs_b64,
                 "state_vec": self._state_vec(observation["state"]),
-                "instruction": self.instruction,
+                "instruction": effective_instruction,
             })
             chunk_arr = np.asarray(resp["chunk"], dtype=np.float32)
             self._chunks.append((chunk_arr, self._step_idx))

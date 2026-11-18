@@ -87,7 +87,8 @@ class Session:
             return {**obs, "metrics": self.env.metrics()}
         return self.submit(_run)
 
-    def policy(self, token, model_id: str = "hackathon_vla_bc", epoch=None, steps: int = 1):
+    def policy(self, token, model_id: str = "hackathon_vla_bc", epoch=None, steps: int = 1,
+               instruction: str | None = None):
         n = max(1, min(int(steps or 1), 50))
         def _run():
             self._guard(token, None, epoch)
@@ -106,7 +107,7 @@ class Session:
             obs = None
             last_action = None
             for _ in range(n):
-                action = runner.act(self.env.observation())
+                action = runner.act(self.env.observation(), instruction=instruction)
                 last_action = action
                 obs = self.env.step(action)
                 if self.env.metrics().get("success"):

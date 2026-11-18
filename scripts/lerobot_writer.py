@@ -60,7 +60,7 @@ def main():
             frame = {
                 "observation.state": state,
                 "action": z["action"][i].astype(np.float32),
-                "task": cfg["task"]["instruction"],
+                "task": ep.get("instruction") or cfg["task"]["instruction"],
             }
             for camera in manifest["cameras"]:
                 frame[f"observation.images.{camera}"] = decode(z[f"jpeg_{camera}"][i])

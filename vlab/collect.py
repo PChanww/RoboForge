@@ -129,6 +129,9 @@ def collect(config: ProjectConfig, lab_root: Path, plan: list[dict], out_dir: Pa
         for i, item in enumerate(plan):
             cfg = config.model_copy(deep=True)
             cfg.task.asset = item["asset"]
+            instruction = (item.get("instruction") or config.task.instruction or "").strip()
+            if instruction:
+                cfg.task.instruction = instruction
             env.config = cfg
             env.reset(item["seed"])
             # Preroll the existing Cartesian expert with an open gripper until
@@ -157,6 +160,7 @@ def collect(config: ProjectConfig, lab_root: Path, plan: list[dict], out_dir: Pa
             np.savez_compressed(out_dir / "episodes" / f"ep{i:03d}.npz", **arrays)
             row = {"index": i, "asset": item["asset"], "seed": env.seed, "frames": len(rec.frame_time),
                    "success": bool(success), "duration_s": float(rec.frame_time[-1]),
+                   "instruction": instruction,
                    "control_source": source}
             rows.append(row)
             print(i, row, flush=True)

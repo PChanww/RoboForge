@@ -38,8 +38,8 @@ export const api = {
     req<Observation>('POST', `/api/v1/sessions/${sid}/action`, { token, action, epoch }),
   expertStep: (sid: string, token: string, epoch?: number, steps = 1) =>
     req<Observation & { metrics?: any }>('POST', `/api/v1/sessions/${sid}/expert_step`, { token, epoch, steps }),
-  policyStep: (sid: string, token: string, model_id: string, epoch?: number, steps = 1) =>
-    req<Observation & { metrics?: any }>('POST', `/api/v1/sessions/${sid}/policy_step`, { token, model_id, epoch, steps }),
+  policyStep: (sid: string, token: string, model_id: string, epoch?: number, steps = 1, instruction?: string) =>
+    req<Observation & { metrics?: any }>('POST', `/api/v1/sessions/${sid}/policy_step`, { token, model_id, epoch, steps, instruction }),
   models: () => req<{ models: any[] }>('GET', '/api/v1/models'),
   result: (sid: string) => req<{ observation: Observation; metrics: any }>('GET', `/api/v1/sessions/${sid}/result`),
   deleteSession: (sid: string) => req('DELETE', `/api/v1/sessions/${sid}`),
