@@ -73,6 +73,8 @@ class JobManager:
                 raise ValueError("Collection requires a saved job config snapshot and output directory")
             args = [sys.executable, "scripts/collect_expert.py", "--out", str(params["out"]),
                     "--config", str(params["config_snapshot"])]
+            if params.get("episodes") is not None:
+                args += ["--episodes", str(int(params["episodes"]))]
             if params.get("plan_path"):
                 args += ["--plan", str(params["plan_path"])]
             if params.get("provenance"):
@@ -118,6 +120,8 @@ class JobManager:
                 args = ["scripts/train_image_bc.py", "--lab", linux_lab, "--dataset", dataset,
                         "--model-out", valid_id(params.get("model_id", params.get("model_out", "visual_bc"))),
                         "--epochs", str(epochs)]
+                if params.get("cameras"):
+                    args += ["--cameras", str(params["cameras"])]
             elif kind == "eval_visual":
                 snapshot = Path(params["config_snapshot"]).relative_to(self.lab).as_posix()
                 args = ["scripts/eval_image_policy.py", "--lab", linux_lab,

@@ -28,12 +28,14 @@ class VisualBCAdapter:
             checkpoint = torch.load(path, weights_only=False)
         self.ck = checkpoint
         self.device = device
-        self.model = VisualBC()
+        in_ch = int(self.ck["state_dict"]["conv.0.weight"].shape[1])
+        self.model = VisualBC(in_channels=in_ch)
         self.model.load_state_dict(self.ck["state_dict"])
         self.model.eval()
         self.size = int(self.ck.get("img_size", 64))
         self.contract_data = contract or self.ck.get("contract") or fallback_contract(self.size)
         self.image_key = self.contract_data.get("image_key", "front")
+        self.camera_keys = self.ck.get("camera_keys") or self.contract_data.get("camera_keys") or [self.image_key]
         self.prev = np.zeros(len(self.contract_data.get("action_names", [0, 0, 0, 0])), dtype=np.float32)
         self.manifest = None
 
@@ -69,14 +71,17 @@ class VisualBCAdapter:
         self.prev = np.zeros_like(self.prev)
 
     def _image(self, obs):
-        f = obs["images"].get(self.image_key)
-        if not f:
-            raise ValueError(f"observation has no {self.image_key} image (renderer unavailable)")
-        img = np.asarray(Image.open(io.BytesIO(base64.b64decode(f["jpeg_b64"]))).convert("RGB"),
-                         dtype=np.float32) / 255.0
-        t = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0)
-        t = torch.nn.functional.interpolate(t, size=(self.size, self.size), mode="bilinear", align_corners=False)
-        return t
+        chans = []
+        for cam in self.camera_keys:
+            f = obs["images"].get(cam)
+            if not f:
+                raise ValueError(f"observation has no {cam} image (renderer unavailable)")
+            img = np.asarray(Image.open(io.BytesIO(base64.b64decode(f["jpeg_b64"]))).convert("RGB"),
+                             dtype=np.float32) / 255.0
+            t = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0)
+            t = torch.nn.functional.interpolate(t, size=(self.size, self.size), mode="bilinear", align_corners=False)
+            chans.append(t)
+        return torch.cat(chans, dim=1)
 
     def _state(self, st):
         return np.array(st["state_vec"], dtype=np.float32) if "state_vec" in st else self._state_from_names(st)

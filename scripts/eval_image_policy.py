@@ -61,6 +61,7 @@ def run_episode(model, ck, asset, seed, ticks=200):
     sid = s["id"]
     tok = req("POST", f"/api/v1/sessions/{sid}/control/acquire", {"owner": "visual_eval"})["token"]
     epoch = req("POST", f"/api/v1/sessions/{sid}/reset", {"seed": seed})["epoch"]
+    camera_keys = ck.get("camera_keys") or (ck.get("contract") or {}).get("camera_keys") or ["front"]
     prev = np.zeros(4, dtype=np.float32)
     success = False
     render_mode = None
@@ -68,13 +69,20 @@ def run_episode(model, ck, asset, seed, ticks=200):
         for _ in range(ticks):
             obs = req("GET", f"/api/v1/sessions/{sid}/observation")
             render_mode = obs.get("render_mode", render_mode)
-            f = obs["images"].get("front")
-            if not f:
+            chans = []
+            for cam in camera_keys:
+                f = obs["images"].get(cam)
+                if not f:
+                    chans = []
+                    break
+                img = np.asarray(Image.open(io.BytesIO(base64.b64decode(f["jpeg_b64"]))).convert("RGB"),
+                                 dtype=np.float32) / 255.0
+                c = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0)
+                c = F.interpolate(c, size=(IMG, IMG), mode="bilinear", align_corners=False)
+                chans.append(c)
+            if not chans:
                 break
-            img = np.asarray(Image.open(io.BytesIO(base64.b64decode(f["jpeg_b64"]))).convert("RGB"),
-                             dtype=np.float32) / 255.0
-            t = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0)
-            t = F.interpolate(t, size=(IMG, IMG), mode="bilinear", align_corners=False)
+            t = torch.cat(chans, dim=1)
             st = (torch.tensor(state_vec(obs["state"])) - ck["state_mean"]) / ck["state_std"]
             pn = (torch.tensor(prev) - ck["prev_mean"]) / ck["prev_std"]
             with torch.no_grad():
@@ -110,7 +118,8 @@ def main():
     valid_id(args.model)
     valid_id(args.base_project)
     ck = torch.load(lab / "datasets" / "models" / f"{args.model}.pt", weights_only=False)
-    model = VisualBC()
+    in_ch = int(ck["state_dict"]["conv.0.weight"].shape[1])
+    model = VisualBC(in_channels=in_ch)
     model.load_state_dict(ck["state_dict"])
     model.eval()
     base_cfg = (json.loads(Path(args.config).read_text(encoding="utf-8")) if args.config

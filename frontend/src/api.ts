@@ -38,6 +38,9 @@ export const api = {
     req<Observation>('POST', `/api/v1/sessions/${sid}/action`, { token, action, epoch }),
   expertStep: (sid: string, token: string, epoch?: number, steps = 1) =>
     req<Observation & { metrics?: any }>('POST', `/api/v1/sessions/${sid}/expert_step`, { token, epoch, steps }),
+  policyStep: (sid: string, token: string, model_id: string, epoch?: number, steps = 1) =>
+    req<Observation & { metrics?: any }>('POST', `/api/v1/sessions/${sid}/policy_step`, { token, model_id, epoch, steps }),
+  models: () => req<{ models: any[] }>('GET', '/api/v1/models'),
   result: (sid: string) => req<{ observation: Observation; metrics: any }>('GET', `/api/v1/sessions/${sid}/result`),
   deleteSession: (sid: string) => req('DELETE', `/api/v1/sessions/${sid}`),
   // jobs / library / datasets / deployments
@@ -50,6 +53,7 @@ export const api = {
   projects: () => req<{ projects: any[] }>('GET', '/api/v1/projects'),
   datasets: () => req<{ datasets: any[] }>('GET', '/api/v1/datasets'),
   dataset: (id: string) => req<any>('GET', `/api/v1/datasets/${id}`),
+  datasetPreviewFrames: (id: string, episode = 0) => req<any>('GET', `/api/v1/datasets/${encodeURIComponent(id)}/preview-frames?episode=${episode}`),
   assetLibrary: () => req<{ assets: any[] }>('GET', '/api/v1/asset-library'),
   deployments: () => req<{ deployments: any[] }>('GET', '/api/v1/deployments'),
   generationStatus: () => req<any>('GET', '/api/v1/generation-jobs'),

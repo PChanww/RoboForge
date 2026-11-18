@@ -359,7 +359,7 @@ function WorldGaussianCloud({ sceneId, revision, inst }:
   const sc = inst?.uniform_scale || 1
   return (
     <points geometry={cloud.geo} position={[px, py, pz]} quaternion={q} scale={sc}>
-      <pointsMaterial size={0.032} vertexColors transparent opacity={0.9} sizeAttenuation />
+      <pointsMaterial size={0.015} vertexColors transparent opacity={0.72} sizeAttenuation />
     </points>
   )
 }
@@ -379,6 +379,9 @@ function StaticScene() {
   const wsZ = config?.scene.work_surface_z ?? 0
   const trayThickness = Math.max(0.004, goalSurface - wsZ)
   const environment = config?.scene.environment
+  useEffect(() => {
+    useView.setState({ splatCloud: false })
+  }, [config?.project_id])
   useEffect(() => {
     let alive = true
     if (!environment) { setEnvMeta(null); return }

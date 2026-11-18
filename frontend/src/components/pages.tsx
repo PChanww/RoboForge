@@ -564,28 +564,32 @@ export function RobotEditPage() {
 export function DatasetsPage() {
   const { data, reload } = useFetch(() => api.datasets(), [])
   const projects = useFetch(() => api.projects(), [])
-  const [project, setProject] = useState('default')
+  const [project, setProject] = useState('hackathon_demo')
+  const [episodes, setEpisodes] = useState(6)
   const [collection, setCollection] = useState('capture_' + Date.now())
   const [dataset, setDataset] = useState('scene_data_' + Date.now())
   const [msg, setMsg] = useState('')
   const start = async (kind: string) => {
     try {
-      const params = kind === 'collect' ? {project_id: project, dataset_id: collection} : {collection_id: collection, dataset_id: dataset}
+      const params = kind === 'collect'
+        ? { project_id: project, dataset_id: collection, episodes }
+        : { collection_id: collection, dataset_id: dataset }
       const job = await api.createJob(kind, params); setMsg(`任务 ${job.id} 已创建`); reload()
     } catch (e: any) { setMsg(e.message) }
   }
   return (
     <div className="p-4">
       <h2 className="text-lg text-ink mb-2">数据集</h2>
-      <div className="flex gap-2 text-xs mb-3">
+      <div className="flex flex-wrap gap-2 text-xs mb-3">
         <label>项目 <select value={project} onChange={e => setProject(e.target.value)}>{projects.data?.projects.map(p => <option key={p.id}>{p.id}</option>)}</select></label>
+        <label>采集局数 <input className="!w-16" type="number" min={1} max={50} value={episodes} onChange={e => setEpisodes(Math.max(1, parseInt(e.target.value) || 6))} /></label>
         <label>采集 ID <input value={collection} onChange={e => setCollection(e.target.value)} /></label>
         <label>转换后数据集 ID <input value={dataset} onChange={e => setDataset(e.target.value)} /></label>
       </div>
       <div className="flex gap-2 mb-3">
-        <Button onClick={() => start('collect')}>采集（伺服专家）</Button>
+        <Button onClick={() => start('collect')}>采集（双目视觉+专家）</Button>
         <Button variant="outline" onClick={() => start('convert')}>转换 LeRobot</Button>
-        <span className="text-xs text-muted">转换包含实际回读验证；使用新 ID，避免覆盖已有数据。</span>
+        <span className="text-xs text-muted">同时录制 front + wrist 相机画面；使用新 ID 避免覆盖已有数据。</span>
       </div>
       {msg && <div className="text-xs mb-3">{msg}</div>}
       <div className="grid grid-cols-2 gap-3 mb-4">
@@ -604,10 +608,31 @@ export function DatasetsPage() {
 export function DatasetDetail() {
   const { datasetId } = useParams()
   const { data } = useFetch(() => api.dataset(datasetId || 'staging'), [datasetId])
+  const preview = useFetch(() => api.datasetPreviewFrames(datasetId || 'staging', 0), [datasetId])
   return (
     <div className="p-4">
       <Link to="/datasets" className="text-xs text-accent">← 数据集</Link>
       <h2 className="text-lg text-ink my-2">{datasetId}</h2>
+      {(preview.data?.frames || []).length > 0 && (
+        <Section title="已采集的双目相机样本（Episode 0 · front + wrist 视觉真值）">
+          <div className="grid grid-cols-3 gap-3 mb-2">
+            {preview.data.frames.map((fr: any) => (
+              <div key={fr.index} className="border border-edge rounded p-2 bg-panel2 text-xs">
+                <div className="text-accent mb-1">{fr.label} · frame {fr.index} · {fr.sim_time}s</div>
+                <div className="grid grid-cols-2 gap-1">
+                  {Object.entries(fr.images || {}).map(([cam, b64]: [string, any]) => (
+                    <div key={cam}>
+                      <div className="text-[10px] text-muted mb-0.5">{cam}</div>
+                      <img alt={cam} className="w-full rounded border border-edge" src={`data:image/jpeg;base64,${b64}`} />
+                    </div>
+                  ))}
+                </div>
+                <div className="text-[10px] text-muted mt-1 font-mono">action: [{fr.action.join(', ')}]</div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
       <pre className="text-[11px] text-muted bg-panel2 border border-edge rounded p-3 overflow-auto max-h-[60vh]">
         {JSON.stringify(data, null, 1)}
       </pre>
@@ -618,8 +643,9 @@ export function DatasetDetail() {
 export function TrainingPage() {
   const { reload } = useFetch(() => api.jobs(), [])
   const datasets = useFetch(() => api.datasets(), [])
+  const models = useFetch(() => api.models(), [])
   const [dataset, setDataset] = useState('')
-  const [model, setModel] = useState('repaired_visual')
+  const [model, setModel] = useState('hackathon_vla_bc')
   const [msg, setMsg] = useState('')
   const available = (datasets.data?.datasets || []).filter(d => d.kind === 'lerobot')
   const start = (priv: boolean) => api.createJob('train', { priv, epochs: 60 }).then(reload)
@@ -634,13 +660,31 @@ export function TrainingPage() {
         <Button onClick={() => start(false)}>训练状态 BC</Button>
         <Button variant="outline" onClick={() => start(true)}>训练特权 BC</Button>
         <Button variant="outline" disabled={!available.length} onClick={async () => {
-          try { await api.createJob('train_visual', {dataset_id: dataset || available[0].id, model_id: model}); reload(); setMsg('视觉训练任务已创建') }
+          try { await api.createJob('train_visual', {dataset_id: dataset || available[0].id, model_id: model, cameras: 'front,wrist', epochs: 80}); reload(); setMsg('双目视觉 BC 训练任务已创建') }
           catch (e: any) { setMsg(e.message) }
-        }}>训练视觉 BC</Button>
+        }}>训练双目视觉 BC</Button>
       </div>
       {msg && <div className="text-xs mb-3">{msg}</div>}
-      <div className="text-xs text-muted">视觉训练需要新转换数据集中的 simulation.json；状态/特权 BC 仍使用原固定基线。</div>
-      <div className="text-xs text-muted mb-3">训练在独立后台进程（WSL 学习环境的 PyTorch）运行，与 Web 请求生命周期解耦；产物写入 datasets/models 与 reports。</div>
+      <div className="text-xs text-muted">双目视觉训练输入 front + wrist 相机帧与关节本体状态；同时导出 PyTorch (.pt) 与仿真直连 NumPy (.npz) 权重。</div>
+      <div className="text-xs text-muted mb-3">训练在独立后台进程（WSL 学习环境的 PyTorch）运行，产物写入 datasets/models 与 reports。</div>
+      {(models.data?.models || []).length > 0 && (
+        <Section title="已训练视觉模型（可在仿真工具栏直接「运行视觉策略」）">
+          <table className="w-full text-xs mb-3">
+            <thead><tr className="text-muted text-left"><th className="py-1">模型 ID</th><th>输入视角</th><th>数据帧</th><th>验证 MSE</th><th>可闭环仿真</th></tr></thead>
+            <tbody>
+              {models.data!.models.map((m: any) => (
+                <tr key={m.id} className="border-t border-edge">
+                  <td className="py-1 font-mono text-accent">{m.id}</td>
+                  <td>{(m.camera_keys || ['front']).join(' + ')}</td>
+                  <td>{m.frames ?? '--'}</td>
+                  <td>{m.val_mse ?? '--'}</td>
+                  <td className={m.runnable ? 'text-accent' : 'text-muted'}>{m.runnable ? '就绪 (.npz)' : '仅 .pt'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Section>
+      )}
       <JobsTable filter="train" />
     </div>
   )

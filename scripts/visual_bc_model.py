@@ -18,10 +18,11 @@ ACTION_NAMES = ["dx", "dy", "dz", "grip"]
 
 
 class VisualBC(nn.Module):
-    def __init__(self):
+    def __init__(self, in_channels: int = 3):
         super().__init__()
+        self.in_channels = int(in_channels)
         self.conv = nn.Sequential(
-            nn.Conv2d(3, 16, 5, stride=2), nn.ReLU(),   # 30
+            nn.Conv2d(self.in_channels, 16, 5, stride=2), nn.ReLU(),   # 30
             nn.Conv2d(16, 32, 3, stride=2), nn.ReLU(),  # 14
             nn.Conv2d(32, 64, 3, stride=2), nn.ReLU(),  # 6
             nn.Flatten())

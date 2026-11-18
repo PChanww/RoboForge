@@ -1,0 +1,24 @@
+{
+ "type": "visual BC (front+wrist+state, no object pose)",
+ "camera_keys": [
+  "front",
+  "wrist"
+ ],
+ "in_channels": 6,
+ "episodes": 12,
+ "frames": 893,
+ "train_frames": 595,
+ "optimizer_steps": 2280,
+ "val_mse": 0.00455,
+ "gen_mse": 0.0048,
+ "reload_max_abs_diff": 0.0,
+ "numpy_parity_max_diff": 2.1e-07,
+ "dataset": "hackathon_vla_demo",
+ "render_meta": {
+  "render_mode": "mujoco",
+  "sensor_renderer": "mujoco",
+  "renderer_version": "mujoco:1"
+ },
+ "checkpoint": "/mnt/c/Users/31295/Documents/Codex/2026-11-09/https-www-aholo3d-cn-hackathon-utm/outputs/vla-lab/datasets/models/hackathon_vla_bc.pt",
+ "numpy_weights": "/mnt/c/Users/31295/Documents/Codex/2026-11-09/https-www-aholo3d-cn-hackathon-utm/outputs/vla-lab/datasets/models/hackathon_vla_bc.npz"
+}

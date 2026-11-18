@@ -508,3 +508,58 @@ def test_expert_step_batching_dynamic_colliders_and_tray_orientation(tmp_path, m
         assert len(pos_raw) == 1000 * 12 and len(col_raw) == 1000 * 3
     missing = c.get("/api/v1/scene-assets/no_such_scene/revisions/1/point-cloud")
     assert missing.status_code == 404
+
+
+def test_dual_camera_visual_policy_inference_and_models_api(tmp_path, monkeypatch):
+    from vlab.visual_infer import VisualPolicyRunner
+
+    lab = _make_lab(tmp_path)
+    monkeypatch.delenv("AHOLO_API_KEY", raising=False)
+    models_dir = lab / "datasets" / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        models_dir / "tiny_dual_bc.npz",
+        **{
+            "conv.0.weight": np.zeros((16, 6, 5, 5), dtype=np.float32),
+            "conv.0.bias": np.zeros(16, dtype=np.float32),
+            "conv.2.weight": np.zeros((32, 16, 3, 3), dtype=np.float32),
+            "conv.2.bias": np.zeros(32, dtype=np.float32),
+            "conv.4.weight": np.zeros((64, 32, 3, 3), dtype=np.float32),
+            "conv.4.bias": np.zeros(64, dtype=np.float32),
+            "img_fc.weight": np.zeros((64, 64 * 6 * 6), dtype=np.float32),
+            "img_fc.bias": np.zeros(64, dtype=np.float32),
+            "state_fc.weight": np.zeros((32, 22), dtype=np.float32),
+            "state_fc.bias": np.zeros(32, dtype=np.float32),
+            "head.0.weight": np.zeros((128, 96), dtype=np.float32),
+            "head.0.bias": np.zeros(128, dtype=np.float32),
+            "head.2.weight": np.zeros((4, 128), dtype=np.float32),
+            "head.2.bias": np.array([0.1, -0.1, 0.2, 0.5], dtype=np.float32),
+            "state_mean": np.zeros(18, dtype=np.float32),
+            "state_std": np.ones(18, dtype=np.float32),
+            "prev_mean": np.zeros(4, dtype=np.float32),
+            "prev_std": np.ones(4, dtype=np.float32),
+            "img_size": np.array(64, dtype=np.int32),
+            "camera_keys": np.array(json.dumps(["front", "wrist"])),
+        },
+    )
+
+    runner = VisualPolicyRunner(lab, "tiny_dual_bc")
+    out = runner.forward(np.zeros((6, 64, 64), dtype=np.float32), np.zeros(18, dtype=np.float32))
+    assert out == pytest.approx(np.tanh([0.1, -0.1, 0.2, 0.5]), abs=1e-5)
+
+    app = create_app(lab)
+    c = TestClient(app)
+    ml = c.get("/api/v1/models").json()["models"]
+    assert any(m["id"] == "tiny_dual_bc" and m["runnable"] and m["camera_keys"] == ["front", "wrist"] for m in ml)
+
+    sess = c.post("/api/v1/sessions", json={"project": "default"}).json()
+    sid, epoch = sess["id"], sess["epoch"]
+    tok = c.post(f"/api/v1/sessions/{sid}/control/acquire", json={"owner": "test"}).json()["token"]
+    step = c.post(f"/api/v1/sessions/{sid}/policy_step", json={
+        "token": tok, "model_id": "tiny_dual_bc", "epoch": epoch, "steps": 3,
+    })
+    assert step.status_code == 200, step.text
+    sj = step.json()
+    assert sj["tick"] == sess["observation"]["tick"] + 3
+    assert len(sj["last_action"]) == 4
+    c.delete(f"/api/v1/sessions/{sid}")

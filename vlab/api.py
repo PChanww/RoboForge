@@ -48,6 +48,11 @@ class ExpertStepBody(TokenBody):
     steps: int = 1
 
 
+class PolicyStepBody(TokenBody):
+    model_id: str = "hackathon_vla_bc"
+    steps: int = 1
+
+
 class ActionBody(BaseModel):
     token: str
     action: list[float]
@@ -354,6 +359,16 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(400, str(exc))
 
+    @app.post("/api/v1/sessions/{sid}/policy_step")
+    def policy_step(sid: str, body: PolicyStepBody):
+        s = _session(sid)
+        try:
+            return s.policy(body.token, model_id=body.model_id, epoch=body.epoch, steps=body.steps)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
     @app.get("/api/v1/sessions/{sid}/result")
     def result(sid: str):
         s = _session(sid)
@@ -526,6 +541,88 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         if not p.is_file():
             raise HTTPException(404, "unknown dataset")
         return json.loads(p.read_text(encoding="utf-8"))
+
+    @app.get("/api/v1/datasets/{did}/preview-frames")
+    def dataset_preview_frames(did: str, episode: int = 0):
+        import base64 as _b64_mod
+        import numpy as np
+        valid_id(did)
+        if did == "staging":
+            col_dir = lab_root / "datasets" / "staging"
+        else:
+            raw_id = did[len("collection__"):] if did.startswith("collection__") else did
+            col_dir = lab_root / "datasets" / "collections" / valid_id(raw_id)
+        npz_path = col_dir / "episodes" / f"ep{int(episode):03d}.npz"
+        mf_path = col_dir / "manifest.json"
+        if not npz_path.is_file():
+            return {"dataset": did, "cameras": [], "frames": []}
+        cams = ["front", "wrist"]
+        if mf_path.is_file():
+            mf = json.loads(mf_path.read_text(encoding="utf-8"))
+            if isinstance(mf.get("cameras"), list) and mf["cameras"]:
+                cams = list(mf["cameras"])
+        with np.load(npz_path, allow_pickle=True) as z:
+            n = int(len(z["frame_time"]))
+            if n == 0:
+                return {"dataset": did, "cameras": cams, "frames": []}
+            picks = [(0, "起始"), (n // 2, "中段"), (n - 1, "结束")]
+            seen = set()
+            frames = []
+            for idx, label in picks:
+                if idx in seen:
+                    continue
+                seen.add(idx)
+                item = {
+                    "index": int(idx),
+                    "label": label,
+                    "sim_time": round(float(z["frame_time"][idx]), 3),
+                    "action": [round(float(v), 4) for v in z["action"][idx].tolist()],
+                    "images": {},
+                }
+                for c in cams:
+                    k = f"jpeg_{c}"
+                    if k in z:
+                        raw = bytes(z[k][idx])
+                        item["images"][c] = _b64_mod.b64encode(raw).decode("ascii")
+                frames.append(item)
+        return {"dataset": did, "cameras": cams, "frames": frames}
+
+    @app.get("/api/v1/models")
+    def list_models():
+        models_dir = lab_root / "datasets" / "models"
+        reports_dir = lab_root / "datasets" / "reports"
+        entries: dict[str, dict] = {}
+        if models_dir.is_dir():
+            for p in sorted(models_dir.iterdir()):
+                if p.suffix not in {".pt", ".npz"}:
+                    continue
+                mid = p.stem
+                rec = entries.setdefault(mid, {
+                    "id": mid, "has_pt": False, "has_npz": False,
+                    "camera_keys": ["front"], "runnable": False,
+                })
+                if p.suffix == ".pt":
+                    rec["has_pt"] = True
+                if p.suffix == ".npz":
+                    rec["has_npz"] = True
+                    rec["runnable"] = True
+                    try:
+                        import numpy as np
+                        with np.load(p, allow_pickle=False) as d:
+                            if "camera_keys" in d:
+                                rec["camera_keys"] = json.loads(str(d["camera_keys"].item()))
+                    except Exception:
+                        pass
+                rp = reports_dir / f"train_{mid}.json"
+                if rp.is_file():
+                    try:
+                        rep = json.loads(rp.read_text(encoding="utf-8"))
+                        for fld in ("type", "camera_keys", "episodes", "frames", "val_mse", "gen_mse", "dataset"):
+                            if fld in rep:
+                                rec[fld] = rep[fld]
+                    except Exception:
+                        pass
+        return {"models": sorted(entries.values(), key=lambda x: (not x["runnable"], x["id"]))}
 
     @app.get("/api/v1/asset-library")
     def asset_library():

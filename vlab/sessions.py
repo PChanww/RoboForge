@@ -30,6 +30,7 @@ class Session:
         self.env = self._executor.submit(PlatformEnv, config, lab_root, robot_id, controller_id).result()
         self.env.session_id = self.id
         self.epoch = self.env.epoch
+        self._policy_runners = {}
 
     def submit(self, fn, *args, **kwargs):
         return self._executor.submit(fn, *args, **kwargs).result()
@@ -38,6 +39,8 @@ class Session:
         def _run():
             obs = self.env.reset(seed)
             self.epoch = self.env.epoch  # env owns epoch; session mirrors it
+            for runner in self._policy_runners.values():
+                runner.reset()
             return {"observation": obs, "epoch": self.epoch}
         return self.submit(_run)
 
@@ -82,6 +85,28 @@ class Session:
                 if self.env.metrics().get("success"):
                     break
             return {**obs, "metrics": self.env.metrics()}
+        return self.submit(_run)
+
+    def policy(self, token, model_id: str = "hackathon_vla_bc", epoch=None, steps: int = 1):
+        n = max(1, min(int(steps or 1), 50))
+        def _run():
+            from .visual_infer import VisualPolicyRunner
+            self._guard(token, None, epoch)
+            runner = self._policy_runners.get(model_id)
+            if runner is None:
+                runner = VisualPolicyRunner(self.env.lab_root, model_id)
+                self._policy_runners[model_id] = runner
+            if self.env.scheduler.tick == 0:
+                runner.reset()
+            obs = None
+            last_action = None
+            for _ in range(n):
+                action = runner.act(self.env.observation())
+                last_action = action
+                obs = self.env.step(action)
+                if self.env.metrics().get("success"):
+                    break
+            return {**obs, "metrics": self.env.metrics(), "policy_model": model_id, "last_action": last_action}
         return self.submit(_run)
 
     def acquire(self, owner: str) -> str:

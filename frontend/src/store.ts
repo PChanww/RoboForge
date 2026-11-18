@@ -16,6 +16,8 @@ interface State {
   selection: Selection
   setRobot: (id: string) => Promise<void>
   running: boolean
+  runMode: 'expert' | 'policy'
+  policyModel: string
   busy: boolean
   error: string | null
   logs: LogEntry[]
@@ -26,8 +28,11 @@ interface State {
   reloadSession: () => Promise<void>
   reset: (seed?: number) => Promise<void>
   step: () => Promise<void>
+  setPolicyModel: (id: string) => void
   expertStep: () => Promise<void>
+  policyStep: () => Promise<void>
   toggleRun: () => void
+  togglePolicyRun: () => void
   log: (msg: string, level?: 'info' | 'error') => void
 }
 
@@ -67,6 +72,8 @@ export const useStore = create<State>((set, get) => ({
   activeRobotId: '',
   selection: null,
   running: false,
+  runMode: 'expert',
+  policyModel: 'hackathon_vla_bc',
   busy: false,
   error: null,
   logs: [],
@@ -96,7 +103,9 @@ export const useStore = create<State>((set, get) => ({
         })
         if (typeof document !== 'undefined') {
           document.addEventListener('visibilitychange', () => {
-            if (get().running) get().expertStep()
+            if (!get().running) return
+            if (get().runMode === 'policy') get().policyStep()
+            else get().expertStep()
           })
         }
         hideListenerInstalled = true
@@ -189,6 +198,8 @@ export const useStore = create<State>((set, get) => ({
     finally { stepping = false }
   },
 
+  setPolicyModel: (id) => set({ policyModel: id }),
+
   expertStep: async () => {
     const { sessionId, token } = get()
     if (!sessionId || !token || stepping) return
@@ -203,6 +214,20 @@ export const useStore = create<State>((set, get) => ({
     finally { stepping = false }
   },
 
+  policyStep: async () => {
+    const { sessionId, token, policyModel } = get()
+    if (!sessionId || !token || stepping) return
+    stepping = true
+    try {
+      const steps = typeof document !== 'undefined' && document.hidden ? 10 : 2
+      const obs = await api.policyStep(sessionId, token, policyModel, get().epoch, steps)
+      const metrics = obs.metrics ?? (await api.result(sessionId)).metrics
+      set({ observation: obs, metrics })
+      if (metrics?.success) { get().log(`视觉策略 [${policyModel}] 抓放成功！`); if (get().running) get().togglePolicyRun() }
+    } catch (e: any) { get().log(e.message, 'error'); if (get().running) get().togglePolicyRun() }
+    finally { stepping = false }
+  },
+
   toggleRun: () => {
     const { running } = get()
     if (running) {
@@ -211,9 +236,23 @@ export const useStore = create<State>((set, get) => ({
       set({ running: false })
       get().log('暂停运行')
     } else {
-      set({ running: true })
+      set({ running: true, runMode: 'expert' })
       get().log('开始运行脚本专家')
       stopRunTimer = startExpertLoop(() => { get().expertStep() })
+    }
+  },
+
+  togglePolicyRun: () => {
+    const { running, policyModel } = get()
+    if (running) {
+      if (stopRunTimer) stopRunTimer()
+      stopRunTimer = null
+      set({ running: false })
+      get().log('暂停视觉策略')
+    } else {
+      set({ running: true, runMode: 'policy' })
+      get().log(`开始闭环运行双目视觉策略：${policyModel}`)
+      stopRunTimer = startExpertLoop(() => { get().policyStep() })
     }
   },
 }))
