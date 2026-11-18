@@ -1,6 +1,8 @@
 # 第四轮审查复审结论（对当前 HEAD 实跑，2026-11-18）
 
-对象：仓库 `vla-lab`，HEAD `acb366a`（业务） / 工作区。方法：逐条精读源码 + 直接运行审阅自带的复现脚本
+对象：仓库 `vla-lab` 当前工作区（复审时业务提交为 `acb366a`；其后 main 上另有并发的 SO-ARM100/SmolVLA 提交，
+工作区的 `vlab/engine.py`、`vlab/tasks.py`、`assets/*cup-web*` 为并发线未提交改动，非本次审查所改）。
+方法：逐条精读源码 + 直接运行审阅自带的复现脚本
 `docs/review-round4-20261112/reproduce_review.py`（原位置 `outputs/review-round4-20261112/`，路径正确）。
 
 ## 结论
