@@ -42,6 +42,116 @@ function MeshPart({ url, pose, color, offset }: { url: string; pose?: any; color
   return <primitive object={cloned} />
 }
 
+function GeomPart({ c, pose, sel }: { c: Link['collisions'][number]; pose: any; sel: boolean }) {
+  const m = poseMatrix(pose).multiply(new THREE.Matrix4().makeTranslation(...(c.pos as [number, number, number])))
+  const rgba = c.rgba || [0.5, 0.55, 0.6, 1]
+  const color = sel ? '#81d2bd' : `rgb(${Math.round(rgba[0] * 255)}, ${Math.round(rgba[1] * 255)}, ${Math.round(rgba[2] * 255)})`
+  const metallic = rgba[0] > 0.5
+  return (
+    <group matrixAutoUpdate={false} matrix={m}>
+      <mesh rotation={c.type === 'cylinder' ? [Math.PI / 2, 0, 0] : [0, 0, 0]} castShadow receiveShadow>
+        {c.type === 'box' ? <boxGeometry args={[c.size[0] * 2, c.size[1] * 2, c.size[2] * 2]} />
+          : c.type === 'sphere' ? <sphereGeometry args={[c.size[0], 18, 14]} />
+          : c.type === 'cylinder' ? <cylinderGeometry args={[c.size[0], c.size[0], c.size[1] * 2, 20]} />
+          : <capsuleGeometry args={[c.size[0], Math.max(0.01, c.fromto ? c.fromto[5] - c.fromto[2] : c.size[1] * 2), 6, 12]} />}
+        <meshStandardMaterial color={color} metalness={metallic ? 0.65 : 0.25} roughness={metallic ? 0.3 : 0.55} />
+      </mesh>
+    </group>
+  )
+}
+
+function RevoluteBearing({ j, pose, sel }: { j: { name: string; axis: number[] }; pose: any; sel: boolean }) {
+  if (!pose) return null
+  const m = poseMatrix(pose)
+  const capColor = sel ? '#81d2bd' : '#9aa4ad'
+  const barrelColor = sel ? '#65b4a1' : '#262d32'
+  const ringColor = '#d96b38'
+  if (Math.abs(j.axis[1]) > 0.5) {
+    const r = j.name === 'wrist_pitch' ? 0.022 : 0.0275
+    const len = j.name === 'wrist_pitch' ? 0.046 : 0.060
+    const off = len / 2 + 0.001
+    return (
+      <group matrixAutoUpdate={false} matrix={m}>
+        <mesh castShadow>
+          <cylinderGeometry args={[r, r, len, 24]} />
+          <meshStandardMaterial color={barrelColor} metalness={0.3} roughness={0.5} />
+        </mesh>
+        {[-1, 1].map((s) => (
+          <group key={s}>
+            <mesh position={[0, s * off, 0]} castShadow>
+              <cylinderGeometry args={[r * 0.78, r * 0.78, 0.004, 24]} />
+              <meshStandardMaterial color={capColor} metalness={0.7} roughness={0.28} />
+            </mesh>
+            <mesh position={[0, s * (len / 2 - 0.003), 0]}>
+              <cylinderGeometry args={[r * 1.03, r * 1.03, 0.003, 24]} />
+              <meshStandardMaterial color={ringColor} metalness={0.3} roughness={0.45} />
+            </mesh>
+          </group>
+        ))}
+      </group>
+    )
+  }
+  if (Math.abs(j.axis[2]) > 0.5) {
+    const r = j.name === 'waist' ? 0.035 : 0.021
+    return (
+      <group matrixAutoUpdate={false} matrix={m}>
+        <mesh rotation={[Math.PI / 2, 0, 0]} castShadow>
+          <cylinderGeometry args={[r, r, 0.014, 24]} />
+          <meshStandardMaterial color={barrelColor} metalness={0.35} roughness={0.48} />
+        </mesh>
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[r * 1.03, r * 1.03, 0.004, 24]} />
+          <meshStandardMaterial color={ringColor} metalness={0.3} roughness={0.45} />
+        </mesh>
+      </group>
+    )
+  }
+  return null
+}
+
+function GripperVisual({ name, pose, sel }: { name: 'eef' | 'left' | 'right'; pose: any; sel: boolean }) {
+  if (!pose) return null
+  const m = poseMatrix(pose)
+  const housing = sel ? '#81d2bd' : '#262d32'
+  const steel = sel ? '#a5ead9' : '#b2bcc2'
+  const pad = sel ? '#4d9887' : '#1e2428'
+  if (name === 'eef') {
+    return (
+      <group matrixAutoUpdate={false} matrix={m}>
+        <mesh position={[0, 0, 0.060]} castShadow receiveShadow>
+          <boxGeometry args={[0.036, 0.086, 0.018]} />
+          <meshStandardMaterial color={housing} metalness={0.35} roughness={0.48} />
+        </mesh>
+        <mesh position={[0, 0, 0.071]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+          <cylinderGeometry args={[0.021, 0.021, 0.014, 24]} />
+          <meshStandardMaterial color={steel} metalness={0.72} roughness={0.28} />
+        </mesh>
+        <mesh position={[0, 0, 0.049]} castShadow>
+          <boxGeometry args={[0.010, 0.082, 0.006]} />
+          <meshStandardMaterial color={steel} metalness={0.75} roughness={0.25} />
+        </mesh>
+      </group>
+    )
+  }
+  const outerY = name === 'left' ? 0.005 : -0.005
+  return (
+    <group matrixAutoUpdate={false} matrix={m}>
+      <mesh position={[0, 0, 0.044]} castShadow>
+        <boxGeometry args={[0.022, 0.012, 0.010]} />
+        <meshStandardMaterial color={steel} metalness={0.72} roughness={0.28} />
+      </mesh>
+      <mesh position={[0, outerY, 0.014]} castShadow>
+        <boxGeometry args={[0.025, 0.005, 0.068]} />
+        <meshStandardMaterial color={steel} metalness={0.68} roughness={0.32} />
+      </mesh>
+      <mesh position={[0, 0, 0]} castShadow receiveShadow>
+        <boxGeometry args={[0.028, 0.008, 0.044]} />
+        <meshStandardMaterial color={pad} metalness={0.15} roughness={0.75} />
+      </mesh>
+    </group>
+  )
+}
+
 function Robot() {
   const config = useStore((s) => s.config)
   const obs = useStore((s) => s.observation)
@@ -54,12 +164,29 @@ function Robot() {
   const poses = obs?.state.body_poses
   return (
     <group>
-      {robot.links.map((link: Link) => link.visuals.map((v, i) => (
-        <group key={link.name + i} onClick={(e) => { e.stopPropagation(); select({ kind: 'link', id: link.name }) }}>
-          <MeshPart url={`/${robot.mesh_dir}/${v.mesh}.obj`} pose={poses?.[link.name]}
-            color={selection?.kind === 'link' && selection.id === link.name ? '#81d2bd' : '#d6c39a'} />
-        </group>
-      )))}
+      {robot.links.map((link: Link) => {
+        const pose = poses?.[link.name]
+        const sel = selection?.kind === 'link' && selection.id === link.name
+        const isGripPart = Boolean(robot.gripper && (link.name === 'eef' || link.name === 'left' || link.name === 'right'))
+        return (
+          <group key={link.name} onClick={(e) => { e.stopPropagation(); select({ kind: 'link', id: link.name }) }}>
+            {link.visuals.map((v, i) => (
+              <MeshPart key={`v${i}`} url={`/${robot.mesh_dir}/${v.mesh}.obj`} pose={pose}
+                color={sel ? '#81d2bd' : '#d6c39a'} />
+            ))}
+            {pose && isGripPart && (
+              <GripperVisual name={link.name as 'eef' | 'left' | 'right'} pose={pose} sel={sel} />
+            )}
+            {pose && !isGripPart && link.collisions.filter((c) => (c.rgba?.[3] ?? 1) > 0).map((c, i) => (
+              <GeomPart key={`g${i}`} c={c} pose={pose} sel={sel} />
+            ))}
+          </group>
+        )
+      })}
+      {robot.joints.filter((j) => j.type === 'revolute').map((j) => (
+        <RevoluteBearing key={`brg_${j.name}`} j={j} pose={poses?.[j.child]}
+          sel={selection?.kind === 'joint' && selection.id === j.name} />
+      ))}
       {showColliders && robot.links.map((link: Link) => link.collisions.filter((c) => c.contype !== 0).map((c, i) => {
         const pose = poses?.[link.name]
         if (!pose) return null
