@@ -293,14 +293,39 @@ class PlatformEnv:
         cup = self.model.body("cup").id
         object_pose = {"position": self.data.xpos[cup].tolist(),
                        "matrix": self.data.xmat[cup].reshape(3, 3).tolist(),
-                       "visual_offset": [0, 0, self._cup_offset]}
+                       "visual_offset": [0, 0, self._cup_offset],
+                       "radius_m": float(self._asset_radius),
+                       "height_m": float(self._asset_height)}
         dynamic_objects = {}
+        cyl_type = int(mujoco.mjtGeom.mjGEOM_CYLINDER)
         for node in self.config.scene.asset_nodes:
             if node.role == "dynamic":
                 nbid = self.model.body(f"node_{node.node_id}").id
+                cols = []
+                prefix = f"node_{node.node_id}_col"
+                for gid in range(self.model.ngeom):
+                    if int(self.model.geom_bodyid[gid]) != nbid:
+                        continue
+                    gname = self.model.geom(gid).name or ""
+                    if not gname.startswith(prefix):
+                        continue
+                    gtype = int(self.model.geom_type[gid])
+                    gs = self.model.geom_size[gid]
+                    if gtype == cyl_type:
+                        shape = "cylinder"
+                        size_m = [float(gs[0] * 2), float(gs[0] * 2), float(gs[1] * 2)]
+                    else:
+                        shape = "box"
+                        size_m = [float(gs[0] * 2), float(gs[1] * 2), float(gs[2] * 2)]
+                    cols.append({
+                        "shape": shape,
+                        "size_m": size_m,
+                        "position": self.model.geom_pos[gid].tolist(),
+                    })
                 dynamic_objects[node.node_id] = {
                     "position": self.data.xpos[nbid].tolist(),
                     "matrix": self.data.xmat[nbid].reshape(3, 3).tolist(),
+                    "colliders": cols,
                 }
         self._state = {"time": round(episode_time, 6), "joint_pos": pos, "joint_vel": vel,
                        "eef_position": eef_pos, "eef_matrix": eef_mat, "gripper": grip,

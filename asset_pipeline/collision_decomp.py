@@ -92,6 +92,28 @@ def decompose_mesh_to_boxes(
     cavity_voxels = (~occ) & ((hx_pos & hx_neg) | (hy_pos & hy_neg) | (hz_pos & hz_neg))
     cavity_count = int(cavity_voxels.sum())
 
+    wx = max(1, int(round(0.12 * nx)))
+    wy = max(1, int(round(0.12 * ny)))
+    mid_z = max(1, nz // 2)
+    all_4_sides_high = (
+        nx >= 6 and ny >= 6 and nz >= 4
+        and bool(occ[:wx, :, mid_z:].any())
+        and bool(occ[nx - wx :, :, mid_z:].any())
+        and bool(occ[:, :wy, mid_z:].any())
+        and bool(occ[:, ny - wy :, mid_z:].any())
+    )
+    is_shallow_tray = force_compound and (ext[2] <= 0.25 * min(ext[0], ext[1])) and nx >= 6 and ny >= 6 and nz >= 4
+    if is_shallow_tray or (all_4_sides_high and (force_compound or cavity_count >= max(2, int(0.02 * occ.size)))):
+        # Regularize open-top 4-walled trays into a flat interior floor slab + 4 perimeter rim walls.
+        fz = max(1, min(nz // 3, 2))
+        occ = np.zeros((nx, ny, nz), dtype=bool)
+        occ[:, :, :fz] = True
+        occ[:wx, :, fz:] = True
+        occ[nx - wx :, :, fz:] = True
+        occ[:, :wy, fz:] = True
+        occ[:, ny - wy :, fz:] = True
+        cavity_count = int((nx - 2 * wx) * (ny - 2 * wy) * (nz - fz))
+
     raw_boxes: list[tuple[float, list[float], list[float], int]] = []
     # Z-layer-first greedy maximal cuboid merging keeps flat floor/base layers intact.
     while occ.any() and len(raw_boxes) < max_boxes * 4:

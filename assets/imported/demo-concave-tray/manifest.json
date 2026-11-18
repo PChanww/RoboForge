@@ -10,13 +10,13 @@
   "friction": null,
   "bounds_m": [
     [
-      -0.1,
-      -0.075,
+      -0.10041444089727572,
+      -0.07700034203987194,
       0.0
     ],
     [
-      0.1,
-      0.075,
+      0.09958555910272429,
+      0.07299965796012806,
       0.022
     ]
   ],
@@ -26,7 +26,7 @@
     0.022
   ],
   "up_axis": "Z",
-  "triangles": 60,
+  "triangles": 27430,
   "collision_proxy": {
     "shape": "box",
     "size_m": [
@@ -41,7 +41,7 @@
     ],
     "basis": "user_explicit"
   },
-  "collision_proxy_desc": "concave compound (5 boxes, fill_ratio=0.6354); preserves hollow/rim contacts",
+  "collision_proxy_desc": "concave compound (5 boxes, fill_ratio=0.5312); preserves hollow/rim contacts",
   "compound_proxy": {
     "shape": "compound",
     "boxes": [
@@ -50,12 +50,50 @@
         "size_m": [
           0.2,
           0.15,
-          0.011
+          0.0055
         ],
         "position": [
+          -0.0004144408972757141,
+          -0.0020003420398719413,
+          0.00275
+        ],
+        "quaternion_xyzw": [
           0.0,
           0.0,
-          0.0055
+          0.0,
+          1.0
+        ]
+      },
+      {
+        "shape": "box",
+        "size_m": [
+          0.025,
+          0.13749999999999998,
+          0.0165
+        ],
+        "position": [
+          -0.08791444089727572,
+          0.00424965796012805,
+          0.013749999999999998
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      {
+        "shape": "box",
+        "size_m": [
+          0.025,
+          0.12499999999999999,
+          0.0165
+        ],
+        "position": [
+          0.08708555910272428,
+          -0.0020003420398719413,
+          0.013749999999999998
         ],
         "quaternion_xyzw": [
           0.0,
@@ -69,12 +107,12 @@
         "size_m": [
           0.2,
           0.012499999999999999,
-          0.011
+          0.0165
         ],
         "position": [
-          0.0,
-          -0.06874999999999999,
-          0.0165
+          -0.0004144408972757141,
+          -0.07075034203987193,
+          0.013749999999999998
         ],
         "quaternion_xyzw": [
           0.0,
@@ -86,52 +124,14 @@
       {
         "shape": "box",
         "size_m": [
-          0.1875,
+          0.17500000000000002,
           0.012499999999999999,
-          0.011
-        ],
-        "position": [
-          0.0062500000000000056,
-          0.06874999999999999,
           0.0165
         ],
-        "quaternion_xyzw": [
-          0.0,
-          0.0,
-          0.0,
-          1.0
-        ]
-      },
-      {
-        "shape": "box",
-        "size_m": [
-          0.0125,
-          0.13749999999999998,
-          0.011
-        ],
         "position": [
-          -0.09375,
-          0.006249999999999992,
-          0.0165
-        ],
-        "quaternion_xyzw": [
-          0.0,
-          0.0,
-          0.0,
-          1.0
-        ]
-      },
-      {
-        "shape": "box",
-        "size_m": [
-          0.0125,
-          0.12499999999999999,
-          0.011
-        ],
-        "position": [
-          0.09375,
-          0.0,
-          0.0165
+          0.012085559102724283,
+          0.06674965796012805,
+          0.013749999999999998
         ],
         "quaternion_xyzw": [
           0.0,
@@ -142,7 +142,7 @@
       }
     ],
     "box_count": 5,
-    "fill_ratio": 0.6354,
+    "fill_ratio": 0.5312,
     "concave_detected": true,
     "grid_shape": [
       16,
@@ -158,9 +158,9 @@
   "physics_status": "proxy_estimate",
   "scale_mode": "bbox_anisotropic",
   "scale_factors": [
-    0.999999985098839,
-    0.9999999602635717,
-    1.000000005418604
+    0.7937721199623905,
+    0.7977455051075402,
+    0.602470434656928
   ],
   "unsatisfied_dimensions": {},
   "scale_basis": "anisotropic bbox scaling to user-specified dimensions",
@@ -169,32 +169,32 @@
     "scaled_to_height_m": 0.022,
     "scale_mode": "bbox_anisotropic",
     "scale_factors": [
-      0.999999985098839,
-      0.9999999602635717,
-      1.000000005418604
+      0.7937721199623905,
+      0.7977455051075402,
+      0.602470434656928
     ],
     "centered_footprint": true,
     "original_extents_m": [
-      0.20000000298023224,
-      0.15000000596046448,
-      0.02199999988079071
+      0.25196148235777815,
+      0.1880298905348006,
+      0.03651631471763046
     ]
   },
-  "source": "other",
-  "source_detail": "RoboForge concave compound demo tray",
-  "generation_id": null,
-  "prompt": "Open ceramic sorting tray 20x15x2.2 cm with recessed cavity and raised rim",
+  "source": "lux3d",
+  "source_detail": "downloaded from authenticated Aholo API task",
+  "generation_id": "8266957",
+  "prompt": "A single rectangular shallow open-top ceramic sorting tray with flat recessed bottom floor and thin raised vertical rim walls, empty interior cavity, clean minimal geometric design, matte ivory glaze, isolated object, no contents, no table",
   "source_mesh": "original.glb",
-  "sha256_glb": "b1d24f56d0c57b3e38edfa60129b18e66ebcf19f0b7647e843197840921537e9",
+  "sha256_glb": "967be78b880895a1e5d3e3f4d4d6cca08e89cd92818203001461ccfd89ed085d",
   "spec_id": null,
   "spec_revision": null,
   "spec_hash": null,
   "compiler_version": null,
   "job_id": null,
   "color_rgb": [
-    0.8823529411764706,
-    0.8627450980392157,
-    0.8235294117647058
+    0.7458849598534824,
+    0.7158239655845823,
+    0.6363156162807845
   ],
   "color_basis": "area-weighted mean of material or indexed vertex colors; uniform simulator tint"
 }

@@ -36,8 +36,8 @@ export const api = {
     req('POST', `/api/v1/sessions/${sid}/control/release`, { token }),
   action: (sid: string, token: string, action: number[], epoch?: number) =>
     req<Observation>('POST', `/api/v1/sessions/${sid}/action`, { token, action, epoch }),
-  expertStep: (sid: string, token: string, epoch?: number) =>
-    req<Observation>('POST', `/api/v1/sessions/${sid}/expert_step`, { token, epoch }),
+  expertStep: (sid: string, token: string, epoch?: number, steps = 1) =>
+    req<Observation & { metrics?: any }>('POST', `/api/v1/sessions/${sid}/expert_step`, { token, epoch, steps }),
   result: (sid: string) => req<{ observation: Observation; metrics: any }>('GET', `/api/v1/sessions/${sid}/result`),
   deleteSession: (sid: string) => req('DELETE', `/api/v1/sessions/${sid}`),
   // jobs / library / datasets / deployments

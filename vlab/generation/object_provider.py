@@ -245,7 +245,7 @@ class ObjectJobStore:
         keys = (
             "prompt", "payload", "kind", "role",
             "height_m", "width_m", "depth_m", "radius_m",
-            "mass_kg", "friction",
+            "mass_kg", "friction", "collision_mode",
             "spec_id", "spec_revision", "spec_hash", "request_hash",
             "provider", "project_id", "config_version",
         )
@@ -544,7 +544,8 @@ class ObjectJobStore:
                             task_id=job["remote_id"], prompt=p["prompt"], spec_id=job.get("spec_id"),
                             spec_revision=job.get("spec_revision"), spec_hash=job.get("spec_hash"),
                             compiler_version=p.get("compiler_version"), job_id=job["id"],
-                            scale_mode=p.get("scale_mode", "auto"))
+                            scale_mode=p.get("scale_mode", "auto"),
+                            collision_mode=p.get("collision_mode", "auto"))
                     job["asset_id"] = "imported/" + job["slug"]
                     mf_check_path = out / "manifest.json"
                 job["nodes"]["import"] = "done"

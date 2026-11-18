@@ -166,8 +166,8 @@ export interface Observation {
     eef_position: number[]
     gripper: number | null
     body_poses: Record<string, { position: number[]; matrix: number[][] }>
-    object_pose: { position: number[]; matrix: number[][] }
-    dynamic_objects?: Record<string, { position: number[]; matrix: number[][] }>
+    object_pose: { position: number[]; matrix: number[][]; visual_offset?: number[]; radius_m?: number; height_m?: number }
+    dynamic_objects?: Record<string, { position: number[]; matrix: number[][]; colliders?: { shape: string; size_m: number[]; position: number[] }[] }>
   }
   images: Record<string, Frame | null>
   camera_status?: Record<string, CameraStatus>

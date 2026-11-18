@@ -44,6 +44,10 @@ class TokenBody(BaseModel):
     epoch: int | None = None
 
 
+class ExpertStepBody(TokenBody):
+    steps: int = 1
+
+
 class ActionBody(BaseModel):
     token: str
     action: list[float]
@@ -343,10 +347,10 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
             raise HTTPException(400, str(exc))
 
     @app.post("/api/v1/sessions/{sid}/expert_step")
-    def expert_step(sid: str, body: TokenBody):
+    def expert_step(sid: str, body: ExpertStepBody):
         s = _session(sid)
         try:
-            return s.expert(body.token, epoch=body.epoch)
+            return s.expert(body.token, epoch=body.epoch, steps=body.steps)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
 

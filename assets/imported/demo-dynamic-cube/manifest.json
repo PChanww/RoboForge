@@ -10,34 +10,34 @@
   "friction": null,
   "bounds_m": [
     [
-      -0.018000000000000002,
-      -0.018000000000000002,
+      -0.018000003576278546,
+      -0.01799993204869605,
       0.0
     ],
     [
-      0.018000000000000002,
-      0.018000000000000002,
-      0.036000000000000004
+      0.01799999642372145,
+      0.018000067951303947,
+      0.036
     ]
   ],
   "actual_extents_m": [
-    0.036000000000000004,
-    0.036000000000000004,
-    0.036000000000000004
+    0.036,
+    0.036,
+    0.036
   ],
   "up_axis": "Z",
-  "triangles": 12,
+  "triangles": 37856,
   "collision_proxy": {
     "shape": "box",
     "size_m": [
-      0.036000000000000004,
-      0.036000000000000004,
-      0.036000000000000004
+      0.036,
+      0.036,
+      0.036
     ],
     "position": [
       0,
       0,
-      0.018000000000000002
+      0.018
     ],
     "basis": "user_explicit"
   },
@@ -49,9 +49,9 @@
   "physics_status": "proxy_estimate",
   "scale_mode": "bbox_anisotropic",
   "scale_factors": [
-    1.0000000430478009,
-    1.0000000430478009,
-    1.0000000430478009
+    0.2399999904632572,
+    0.24000709554668612,
+    0.2400098137099865
   ],
   "unsatisfied_dimensions": {},
   "scale_basis": "anisotropic bbox scaling to user-specified dimensions",
@@ -60,32 +60,32 @@
     "scaled_to_height_m": 0.036,
     "scale_mode": "bbox_anisotropic",
     "scale_factors": [
-      1.0000000430478009,
-      1.0000000430478009,
-      1.0000000430478009
+      0.2399999904632572,
+      0.24000709554668612,
+      0.2400098137099865
     ],
     "centered_footprint": true,
     "original_extents_m": [
-      0.035999998450279236,
-      0.035999998450279236,
-      0.035999998450279236
+      0.15000000596046448,
+      0.1499955654144287,
+      0.1499938666820526
     ]
   },
-  "source": "other",
-  "source_detail": "RoboForge dynamic desktop companion block",
-  "generation_id": null,
-  "prompt": "Orange wooden calibration cube 3.6 cm",
+  "source": "lux3d",
+  "source_detail": "downloaded from authenticated Aholo API task",
+  "generation_id": "8266961",
+  "prompt": "A single solid wooden calibration cube block with flat square faces and warm orange wood grain texture, isolated object, no background",
   "source_mesh": "original.glb",
-  "sha256_glb": "fdb011574f1c2565874ebf2b680a68507b7d71467e12fa0c1097fcf8461a9ff9",
+  "sha256_glb": "9209c8e9445342a5e97d56f4b152cf5e2312441a51f2eba85bf7e51d9b6d6d73",
   "spec_id": null,
   "spec_revision": null,
   "spec_hash": null,
   "compiler_version": null,
   "job_id": null,
   "color_rgb": [
-    0.9215686274509803,
-    0.5098039215686274,
-    0.19607843137254902
+    0.3979627309157028,
+    0.15470003025860413,
+    0.05112874956703344
   ],
   "color_basis": "area-weighted mean of material or indexed vertex colors; uniform simulator tint"
 }

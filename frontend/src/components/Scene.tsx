@@ -96,9 +96,22 @@ function Robot() {
 function Cup() {
   const config = useStore((s) => s.config)
   const obs = useStore((s) => s.observation)
+  const showColliders = useView((s) => s.colliders)
   if (!config || !obs) return null
   const pose = obs.state.object_pose
-  return <MeshPart url={`/api/v1/cup.obj?asset=${encodeURIComponent(config.task.asset)}`} pose={pose} offset={(pose as any).visual_offset} color="#3a8f9c" />
+  return (
+    <group>
+      <MeshPart url={`/api/v1/cup.obj?asset=${encodeURIComponent(config.task.asset)}`} pose={pose} offset={(pose as any).visual_offset} color="#3a8f9c" />
+      {showColliders && pose.radius_m && pose.height_m && (
+        <group matrixAutoUpdate={false} matrix={poseMatrix(pose)}>
+          <mesh rotation={[Math.PI / 2, 0, 0]}>
+            <cylinderGeometry args={[pose.radius_m, pose.radius_m, pose.height_m, 24]} />
+            <meshBasicMaterial color="#22d3ee" wireframe transparent opacity={0.9} depthTest={false} />
+          </mesh>
+        </group>
+      )}
+    </group>
+  )
 }
 
 function Cameras() {
@@ -162,7 +175,21 @@ function StaticScene() {
         const url = `/api/v1/asset-mesh?ref=${encodeURIComponent(n.asset_ref)}`
         const tint = n.role === 'dynamic' ? '#e08a4e' : '#9ea8b2'
         if (dynPose) {
-          return <MeshPart key={n.node_id} url={url} pose={dynPose} color={tint} />
+          return (
+            <group key={n.node_id}>
+              <MeshPart url={url} pose={dynPose} color={tint} />
+              {showColliders && dynPose.colliders?.map((col, ci) => (
+                <group key={`${n.node_id}_dc_${ci}`} matrixAutoUpdate={false} matrix={poseMatrix(dynPose, col.position)}>
+                  <mesh rotation={col.shape === 'cylinder' ? [Math.PI / 2, 0, 0] : [0, 0, 0]}>
+                    {col.shape === 'cylinder'
+                      ? <cylinderGeometry args={[col.size_m[0] / 2, col.size_m[0] / 2, col.size_m[2], 20]} />
+                      : <boxGeometry args={col.size_m as [number, number, number]} />}
+                    <meshBasicMaterial color="#fb923c" wireframe transparent opacity={0.9} depthTest={false} />
+                  </mesh>
+                </group>
+              ))}
+            </group>
+          )
         }
         return (
           <group key={n.node_id} position={n.position as [number, number, number]}
@@ -171,16 +198,21 @@ function StaticScene() {
           </group>
         )
       })}
-      {(config?.scene.colliders || []).filter(c => c.enabled && ((!environment && !isNodeCollider(c.name)) || showColliders)).map(c => (
-        <group key={c.name} position={c.position as [number, number, number]} quaternion={c.quaternion_xyzw as [number, number, number, number]}>
-          <mesh rotation={c.shape === 'cylinder' ? [Math.PI / 2, 0, 0] : [0, 0, 0]}>
-            {c.shape === 'box' ? <boxGeometry args={c.full_size_m as [number, number, number]} /> :
-              c.shape === 'cylinder' ? <cylinderGeometry args={[c.full_size_m[0]/2, c.full_size_m[0]/2, c.full_size_m[2], 32]} /> :
-              <planeGeometry args={[c.full_size_m[0], c.full_size_m[1]]} />}
-            <meshStandardMaterial color={showColliders ? '#ff5577' : '#80909b'} wireframe={showColliders} transparent={showColliders} depthTest={!showColliders} opacity={showColliders ? .6 : 1} side={THREE.DoubleSide} />
-          </mesh>
-        </group>
-      ))}
+      {(config?.scene.colliders || []).filter(c => c.enabled && ((!environment && !isNodeCollider(c.name)) || showColliders)).map(c => {
+        const colColor = showColliders
+          ? (c.name.endsWith('_part_0') ? '#38bdf8' : c.name.includes('_part_') ? '#f59e0b' : '#ff5577')
+          : '#80909b'
+        return (
+          <group key={c.name} position={c.position as [number, number, number]} quaternion={c.quaternion_xyzw as [number, number, number, number]}>
+            <mesh rotation={c.shape === 'cylinder' ? [Math.PI / 2, 0, 0] : [0, 0, 0]}>
+              {c.shape === 'box' ? <boxGeometry args={c.full_size_m as [number, number, number]} /> :
+                c.shape === 'cylinder' ? <cylinderGeometry args={[c.full_size_m[0]/2, c.full_size_m[0]/2, c.full_size_m[2], 32]} /> :
+                <planeGeometry args={[c.full_size_m[0], c.full_size_m[1]]} />}
+              <meshStandardMaterial color={colColor} wireframe={showColliders} transparent={showColliders} depthTest={!showColliders} opacity={showColliders ? .85 : 1} side={THREE.DoubleSide} />
+            </mesh>
+          </group>
+        )
+      })}
       {showBuiltinTray ? (
         <mesh position={[goal[0], goal[1], wsZ + trayThickness / 2]}>
           <boxGeometry args={[goalHalf[0] * 2, goalHalf[1] * 2, trayThickness]} />
@@ -282,6 +314,11 @@ function ViewToolbar() {
           {{ grid: '网格', axes: '关节轴', frustums: '视锥', colliders: '碰撞' }[k]}
         </button>
       ))}
+      {v.colliders && (
+        <span className="px-2 py-0.5 rounded bg-panel/90 border border-edge text-[10px] text-muted">
+          碰撞图例：<b className="text-[#38bdf8]">托盘底</b> · <b className="text-[#f59e0b]">凹面四壁</b> · <b className="text-[#22d3ee]">目标杯</b> · <b className="text-[#fb923c]">动态块</b> · <b className="text-[#ff5577]">机械臂</b>
+        </span>
+      )}
     </div>
   )
 }

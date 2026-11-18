@@ -65,7 +65,7 @@ export function ProjectsPage() {
       <div className="border border-accent/40 rounded p-3 bg-panel2 mb-4">
         <div className="text-sm text-accent font-medium mb-1">Aholo x RoboForge 黑客松旗舰演示</div>
         <div className="text-xs text-muted mb-2">
-          一键装配：5 盒体素凹面分解托盘（真实内腔底面+四壁碰撞）+ 多动态自由刚体（Aholo Lux3D 陶瓷杯 + 伴随木块）+ 参数化支持面 + 标准 URDF 导出。
+          一键装配（全链路 Aholo Lux3D 生成资产）：体素凹面分解托盘（真实内腔底面 + 凹面四壁碰撞）+ 多动态自由刚体（Lux3D 陶瓷杯 + Lux3D 伴随木块）+ 参数化支持面 + 标准 URDF 导出。
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button size="sm" disabled={busy} onClick={() => launchDemo(false)}>

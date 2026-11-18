@@ -447,3 +447,46 @@ def test_environment_mesh_online_compilation_import_and_mujoco(tmp_path, monkeyp
     val = c.post(f"/api/v1/scene-recipes/{rec.json()['recipe_id']}/validate?project_id=default")
     assert val.status_code == 200 and val.json()["valid"] is True, val.json()
     assert val.json()["checks"]["layout"]["colliders"] >= 2
+
+
+def test_expert_step_batching_dynamic_colliders_and_tray_orientation(tmp_path, monkeypatch):
+    from asset_pipeline.import_object import register_object
+
+    lab = _make_lab(tmp_path)
+    monkeypatch.delenv("AHOLO_API_KEY", raising=False)
+
+    # Rotated tray GLB (0.15 along X, 0.20 along Z in Y-up -> X/Y swapped after Z-up conversion)
+    base = trimesh.creation.box([0.15, 0.20, 0.010], transform=trimesh.transformations.translation_matrix([0, 0, 0.005]))
+    tray_glb = tmp_path / "rotated_tray.glb"
+    tray_glb.write_bytes(base.export(file_type="glb"))
+    mf_path = register_object(
+        tray_glb, lab / "assets" / "imported" / "rot-tray",
+        kind="static_prop", role="static", width=0.20, depth=0.15, height=0.022,
+        source="lux3d", task_id="test-rot", collision_mode="compound",
+    )
+    mf = json.loads(mf_path.read_text(encoding="utf-8"))
+    assert mf["calibrated"] is True
+    assert mf["compound_proxy"]["box_count"] >= 4
+    assert mf["compound_proxy"]["floor_box_index"] == 0
+
+    app = create_app(lab)
+    c = TestClient(app)
+    resp = c.post("/api/v1/hackathon-demo/setup", json={"project_id": "hackathon_demo"})
+    assert resp.status_code == 200, resp.text
+
+    sess = c.post("/api/v1/sessions", json={"project": "hackathon_demo"}).json()
+    sid, epoch = sess["id"], sess["epoch"]
+    obs0 = sess["observation"]
+    assert obs0["state"]["object_pose"]["radius_m"] > 0
+    assert obs0["state"]["object_pose"]["height_m"] > 0
+    dyn = obs0["state"]["dynamic_objects"]["companion_cube"]
+    assert len(dyn["colliders"]) >= 1
+    assert dyn["colliders"][0]["size_m"] == pytest.approx([0.036, 0.036, 0.036], abs=2e-3)
+
+    tok = c.post(f"/api/v1/sessions/{sid}/control/acquire", json={"owner": "test"}).json()["token"]
+    step_res = c.post(f"/api/v1/sessions/{sid}/expert_step", json={"token": tok, "epoch": epoch, "steps": 10})
+    assert step_res.status_code == 200, step_res.text
+    sj = step_res.json()
+    assert sj["tick"] == obs0["tick"] + 10
+    assert "metrics" in sj and isinstance(sj["metrics"]["grasped"], bool)
+    c.delete(f"/api/v1/sessions/{sid}")

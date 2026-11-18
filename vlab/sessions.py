@@ -72,10 +72,16 @@ class Session:
             return {"observation": obs, "executed": executed}
         return self.submit(_run)
 
-    def expert(self, token, epoch=None):
+    def expert(self, token, epoch=None, steps: int = 1):
+        n = max(1, min(int(steps or 1), 50))
         def _run():
             self._guard(token, None, epoch)
-            return self.env.step(self.env.servo_expert_action())
+            obs = None
+            for _ in range(n):
+                obs = self.env.step(self.env.servo_expert_action())
+                if self.env.metrics().get("success"):
+                    break
+            return {**obs, "metrics": self.env.metrics()}
         return self.submit(_run)
 
     def acquire(self, owner: str) -> str:

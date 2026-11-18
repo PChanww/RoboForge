@@ -57,7 +57,30 @@ def register_object(path: Path, output: Path, *, kind: str = "task_object", role
     low, high = mesh.bounds
     if np.any(high - low < 1e-9):
         raise ValueError("Mesh has a flat or zero-volume bounding box.")
+    # Level shallow/planar compound trays tilted in 3D generator output (e.g. 20-45 deg presentation pitch)
+    if collision_mode == "compound" and len(mesh.vertices) >= 12:
+        pts = np.asarray(mesh.vertices, dtype=np.float64)
+        cov = np.cov((pts - pts.mean(axis=0)).T)
+        w_eig, u_eig = np.linalg.eigh(cov)
+        az = u_eig[:, 0].copy()
+        if w_eig[1] > 1e-12 and w_eig[0] < 0.15 * w_eig[1] and 0.40 < abs(az[2]) < 0.998:
+            if az[2] < 0:
+                az = -az
+            ax = u_eig[:, 2].copy()
+            ay = np.cross(az, ax)
+            ay /= max(float(np.linalg.norm(ay)), 1e-12)
+            ax = np.cross(ay, az)
+            ax /= max(float(np.linalg.norm(ax)), 1e-12)
+            rot_pca = np.eye(4, dtype=np.float64)
+            rot_pca[:3, :3] = np.column_stack([ax, ay, az]).T
+            mesh.apply_transform(rot_pca)
+            low, high = mesh.bounds
     orig_ext = high - low
+    # Align dominant horizontal axis with requested (width, depth) aspect before scaling
+    if width is not None and depth is not None and (width - depth) * (orig_ext[0] - orig_ext[1]) < -1e-4:
+        mesh.apply_transform([[0, -1, 0, 0], [1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
+        low, high = mesh.bounds
+        orig_ext = high - low
     original_extents = orig_ext.tolist()
 
     linear_count = sum(v is not None for v in (height, width, depth))

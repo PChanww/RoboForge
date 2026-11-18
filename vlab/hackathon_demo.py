@@ -9,6 +9,7 @@ Demonstrates all physics & generation breakthroughs together in real MuJoCo:
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -61,8 +62,14 @@ def _build_cube_glb(dest_glb: Path, size: float = 0.036) -> None:
 
 def ensure_demo_assets(lab_root: Path) -> dict:
     lab_root = Path(lab_root)
+    repo_imported = Path(__file__).resolve().parents[1] / "assets" / "imported"
     tray_dir = lab_root / "assets" / "imported" / "demo-concave-tray"
     cube_dir = lab_root / "assets" / "imported" / "demo-dynamic-cube"
+    for slug, dst_dir in (("demo-concave-tray", tray_dir), ("demo-dynamic-cube", cube_dir)):
+        src_dir = repo_imported / slug
+        if not (dst_dir / "manifest.json").is_file() and (src_dir / "manifest.json").is_file() and src_dir.resolve() != dst_dir.resolve():
+            dst_dir.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(src_dir, dst_dir, dirs_exist_ok=True)
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         if not (tray_dir / "manifest.json").is_file():
