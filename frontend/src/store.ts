@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { api } from './api'
 import type { Observation, ProjectConfig, Selection } from './types'
 
-interface LogEntry { t: string; msg: string; level: 'info' | 'error' }
+interface LogEntry { t: string; msg: string; level: 'info' | 'error'; tag?: string }
 
 interface State {
   config: ProjectConfig | null
@@ -35,13 +35,21 @@ interface State {
   policyStep: () => Promise<void>
   toggleRun: () => void
   togglePolicyRun: () => void
+  upsertLog: (tag: string, msg: string, level?: 'info' | 'error') => void
   log: (msg: string, level?: 'info' | 'error') => void
 }
 
 let stopRunTimer: (() => void) | null = null
+let finishLoadProgress: ((status: 'ok' | 'err' | 'cancel') => void) | null = null
 let stepping = false
 let initQueue = Promise.resolve()
 let hideListenerInstalled = false
+
+function formatBar(pct: number): string {
+  const p = Math.max(0, Math.min(100, Math.round(pct)))
+  const filled = Math.round(p / 10)
+  return `[${'█'.repeat(filled)}${'░'.repeat(10 - filled)}] ${p}%`
+}
 
 function startExpertLoop(fn: () => void): () => void {
   if (typeof Worker !== 'undefined' && typeof Blob !== 'undefined') {
@@ -83,6 +91,18 @@ export const useStore = create<State>((set, get) => ({
 
   log: (msg, level = 'info') =>
     set((s) => ({ logs: [...s.logs.slice(-199), { t: new Date().toLocaleTimeString(), msg, level }] })),
+
+  upsertLog: (tag: string, msg: string, level: 'info' | 'error' = 'info') =>
+    set((s) => {
+      const t = new Date().toLocaleTimeString()
+      const idx = s.logs.findIndex((x) => x.tag === tag)
+      if (idx >= 0) {
+        const next = s.logs.slice()
+        next[idx] = { t, msg, level, tag }
+        return { logs: next }
+      }
+      return { logs: [...s.logs.slice(-199), { t, msg, level, tag }] }
+    }),
 
   init: async (project) => {
     const load = async () => {
@@ -225,11 +245,15 @@ export const useStore = create<State>((set, get) => ({
     try {
       const steps = typeof document !== 'undefined' && document.hidden ? 10 : 2
       const obs = await api.policyStep(sessionId, token, policyModel, get().epoch, steps, policyInstruction)
+      finishLoadProgress?.('ok')
       const metrics = obs.metrics ?? (await api.result(sessionId)).metrics
       set({ observation: obs, metrics })
       if (metrics?.success) { get().log(`视觉策略 [${policyModel}] 抓放成功！`); if (get().running) get().togglePolicyRun() }
-    } catch (e: any) { get().log(e.message, 'error'); if (get().running) get().togglePolicyRun() }
-    finally { stepping = false }
+    } catch (e: any) {
+      finishLoadProgress?.('err')
+      get().log(e.message, 'error')
+      if (get().running) get().togglePolicyRun()
+    } finally { stepping = false }
   },
 
   toggleRun: () => {
@@ -249,13 +273,48 @@ export const useStore = create<State>((set, get) => ({
   togglePolicyRun: () => {
     const { running, policyModel } = get()
     if (running) {
+      finishLoadProgress?.('cancel')
       if (stopRunTimer) stopRunTimer()
       stopRunTimer = null
       set({ running: false })
       get().log('暂停视觉策略')
     } else {
+      finishLoadProgress?.('cancel')
       set({ running: true, runMode: 'policy' })
       get().log(`开始闭环运行双目视觉策略：${policyModel}`)
+      const tag = `policy-load-${Date.now()}`
+      const startedAt = Date.now()
+      let shown = false
+      let done = false
+      const show = (pct: number, detail: string, level: 'info' | 'error' = 'info') => {
+        shown = true
+        get().upsertLog(tag, `${formatBar(pct)} ${detail}`, level)
+      }
+      const timer = setInterval(() => {
+        if (done) return
+        const sec = Math.floor((Date.now() - startedAt) / 1000)
+        if (!shown && sec < 1) return
+        const pct = Math.min(95, Math.max(5, Math.round((sec / 105) * 95)))
+        show(pct, `正在加载 ${policyModel} 权重到显存（已等待 ${sec}s，预计 1~2 分钟，后续复用无需重加载）…`)
+      }, 1000)
+      finishLoadProgress = (status) => {
+        if (done) return
+        done = true
+        clearInterval(timer)
+        finishLoadProgress = null
+        if (!shown) return
+        const sec = ((Date.now() - startedAt) / 1000).toFixed(1)
+        if (status === 'ok') show(100, `${policyModel} 就绪，开始闭环推理（耗时 ${sec}s）`)
+        else if (status === 'err') show(0, `${policyModel} 首步运行失败（${sec}s）`, 'error')
+        else show(0, `已取消等待 ${policyModel} 加载（${sec}s）`)
+      }
+      api.models().then((r) => {
+        if (done) return
+        const m = (r.models || []).find((x: any) => x.id === policyModel)
+        if (m?.arch === 'smolvla' && !m?.loaded) {
+          show(0, `首次加载 ${policyModel} 权重到显存（约 1~2 分钟，后续刷新/换配置将直接复用）…`)
+        }
+      }).catch(() => {})
       stopRunTimer = startExpertLoop(() => { get().policyStep() })
     }
   },

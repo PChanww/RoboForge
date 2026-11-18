@@ -663,3 +663,65 @@ def test_smolvla_models_api_lists_directory_checkpoints(tmp_path):
     assert hit[0]["runnable"] is True
     assert hit[0]["arch"] == "smolvla"
     assert hit[0]["camera_keys"] == ["front", "wrist"]
+    assert hit[0]["loaded"] is False
+
+
+def test_smolvla_shared_worker_reused_and_evicted(tmp_path, monkeypatch):
+    from vlab import smolvla_infer
+
+    lab = _make_lab(tmp_path)
+    for mid in ("smolvla_a", "smolvla_b"):
+        d = lab / "datasets" / "models" / mid
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "config.json").write_text(json.dumps({"type": "smolvla", "chunk_size": 4}), encoding="utf-8")
+        (d / "so100_stats.json").write_text(json.dumps({
+            "model_id": mid,
+            "arch": "smolvla",
+            "camera_keys": ["front", "wrist"],
+            "chunk_size": 4,
+        }), encoding="utf-8")
+
+    started = []
+
+    class FakeProc:
+        def __init__(self, model_dir):
+            self.model_dir = model_dir
+            self.closed = False
+
+        def poll(self):
+            return 0 if self.closed else None
+
+    def fake_start(self):
+        p = FakeProc(self.model_dir)
+        started.append(p)
+        return p
+
+    def fake_close(self):
+        if getattr(self, "_proc", None) is not None:
+            self._proc.closed = True
+            self._proc = None
+
+    monkeypatch.setenv("VLAB_MAX_SMOLVLA_WORKERS", "1")
+    monkeypatch.setattr(smolvla_infer._SharedSmolVLAWorker, "_start_worker", fake_start)
+    monkeypatch.setattr(smolvla_infer._SharedSmolVLAWorker, "close", fake_close)
+    smolvla_infer.close_all_smolvla_workers()
+    try:
+        r1 = smolvla_infer.SmolVLAPolicyRunner(lab, "smolvla_a", shared=True)
+        assert len(started) == 1
+        assert smolvla_infer.is_smolvla_loaded(lab, "smolvla_a") is True
+        r1.close()
+        assert started[0].closed is False  # shared worker stays warm across session close
+
+        r2 = smolvla_infer.SmolVLAPolicyRunner(lab, "smolvla_a", shared=True)
+        assert len(started) == 1  # reused without respawning
+        assert r2._worker is r1._worker
+
+        # Switching to another SmolVLA model evicts the previous one cleanly
+        smolvla_infer.SmolVLAPolicyRunner(lab, "smolvla_b", shared=True)
+        assert len(started) == 2
+        assert started[0].closed is True
+        assert smolvla_infer.is_smolvla_loaded(lab, "smolvla_a") is False
+        assert smolvla_infer.is_smolvla_loaded(lab, "smolvla_b") is True
+    finally:
+        smolvla_infer.close_all_smolvla_workers()
+        assert started[-1].closed is True

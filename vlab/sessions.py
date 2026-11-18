@@ -96,8 +96,16 @@ class Session:
             if runner is None:
                 smolvla_stats = self.env.lab_root / "datasets" / "models" / model_id / "so100_stats.json"
                 if smolvla_stats.is_file():
+                    import json as _json
+                    st = _json.loads(smolvla_stats.read_text(encoding="utf-8"))
+                    obs0 = self.env.observation()
+                    imgs0 = obs0.get("images") or {}
+                    for cam in (st.get("camera_keys") or ["front", "wrist"]):
+                        frame = imgs0.get(cam)
+                        if not frame or not frame.get("jpeg_b64"):
+                            raise ValueError(f"Camera {cam!r} frame unavailable for SmolVLA")
                     from .smolvla_infer import SmolVLAPolicyRunner
-                    runner = SmolVLAPolicyRunner(self.env.lab_root, model_id)
+                    runner = SmolVLAPolicyRunner(self.env.lab_root, model_id, shared=True)
                 else:
                     from .visual_infer import VisualPolicyRunner
                     runner = VisualPolicyRunner(self.env.lab_root, model_id)
@@ -183,3 +191,5 @@ class SessionManager:
             self._sessions.clear()
         for s in sessions:
             s.close()
+        from .smolvla_infer import close_all_smolvla_workers
+        close_all_smolvla_workers()

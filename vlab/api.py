@@ -618,11 +618,13 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
                         st = json.loads((p / "so100_stats.json").read_text(encoding="utf-8"))
                     except Exception:
                         st = {}
+                    from .smolvla_infer import is_smolvla_loaded
                     rec = entries.setdefault(mid, {
                         "id": mid, "has_pt": True, "has_npz": False,
                         "camera_keys": list(st.get("camera_keys") or ["front", "wrist"]),
                         "runnable": True, "arch": str(st.get("arch") or "smolvla"),
                         "language": True,
+                        "loaded": is_smolvla_loaded(lab_root, mid),
                         "default_instruction": st.get("task_instruction") or "",
                         "instructions": list(st.get("instructions") or []),
                     })

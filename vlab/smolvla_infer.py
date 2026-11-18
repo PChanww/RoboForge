@@ -1,6 +1,7 @@
 """Closed-loop inference runner for fine-tuned SmolVLAPolicy models via persistent worker."""
 from __future__ import annotations
 
+from collections import OrderedDict
 import json
 import math
 import os
@@ -21,28 +22,13 @@ def _to_wsl_path(p: Path) -> str:
     return p.as_posix()
 
 
-class SmolVLAPolicyRunner:
-    """Runs 450M SmolVLAPolicy closed-loop with replanning + max_q=2 temporal ensembling."""
+class _SharedSmolVLAWorker:
+    """Thread-safe persistent WSL/Python subprocess hosting one loaded SmolVLAPolicy."""
 
-    def __init__(self, lab_root: Path, model_id: str = "so100_smolvla"):
-        self.lab_root = Path(lab_root).resolve()
-        self.model_id = valid_id(model_id)
-        self.model_dir = self.lab_root / "datasets" / "models" / self.model_id
-        stats_path = self.model_dir / "so100_stats.json"
-        if not stats_path.is_file() or not (self.model_dir / "config.json").is_file():
-            raise FileNotFoundError(f"SmolVLA model files missing under {self.model_dir}")
-        self.stats = json.loads(stats_path.read_text(encoding="utf-8"))
-        self.camera_keys = list(self.stats.get("camera_keys") or ["front", "wrist"])
-        self.state_joints = list(
-            self.stats.get("state_joints")
-            or ["waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw", "left", "right"]
-        )
-        self.instruction = str(self.stats.get("task_instruction") or "")
-        self.replan_every = 2
+    def __init__(self, model_dir: Path):
+        self.model_dir = Path(model_dir).resolve()
         self._lock = threading.Lock()
         self._proc = self._start_worker()
-        self._chunks: list[tuple[np.ndarray, int]] = []
-        self._step_idx = 0
 
     def _start_worker(self):
         repo_vla = Path(__file__).resolve().parents[1]
@@ -90,7 +76,11 @@ class SmolVLAPolicyRunner:
             raise RuntimeError(f"Unexpected SmolVLA worker handshake: {hdr}")
         return proc
 
-    def _rpc(self, payload: dict) -> dict:
+    def is_alive(self) -> bool:
+        p = self._proc
+        return p is not None and p.poll() is None
+
+    def rpc(self, payload: dict) -> dict:
         with self._lock:
             if self._proc is None or self._proc.poll() is not None:
                 self._proc = self._start_worker()
@@ -105,6 +95,101 @@ class SmolVLAPolicyRunner:
             if "error" in resp:
                 raise RuntimeError(resp["error"])
             return resp
+
+    def close(self) -> None:
+        with self._lock:
+            p = getattr(self, "_proc", None)
+            if p is not None and p.poll() is None:
+                try:
+                    if p.stdin:
+                        p.stdin.write(json.dumps({"cmd": "close"}) + "\n")
+                        p.stdin.flush()
+                    p.wait(timeout=2)
+                except Exception:
+                    p.kill()
+            self._proc = None
+
+
+_WORKER_POOL: OrderedDict[tuple[str, str], _SharedSmolVLAWorker] = OrderedDict()
+_POOL_STATE_LOCK = threading.Lock()
+_POOL_START_LOCK = threading.Lock()
+
+
+def is_smolvla_loaded(lab_root: Path, model_id: str) -> bool:
+    key = (str(Path(lab_root).resolve()), valid_id(model_id))
+    with _POOL_STATE_LOCK:
+        w = _WORKER_POOL.get(key)
+        return w is not None and w.is_alive()
+
+
+def _acquire_shared_worker(lab_root: Path, model_id: str, model_dir: Path) -> _SharedSmolVLAWorker:
+    key = (str(Path(lab_root).resolve()), valid_id(model_id))
+    with _POOL_STATE_LOCK:
+        w = _WORKER_POOL.get(key)
+        if w is not None and w.is_alive():
+            _WORKER_POOL.move_to_end(key)
+            return w
+    with _POOL_START_LOCK:
+        max_workers = max(1, int(os.environ.get("VLAB_MAX_SMOLVLA_WORKERS", "1")))
+        to_close: list[_SharedSmolVLAWorker] = []
+        with _POOL_STATE_LOCK:
+            w = _WORKER_POOL.get(key)
+            if w is not None and w.is_alive():
+                _WORKER_POOL.move_to_end(key)
+                return w
+            dead = _WORKER_POOL.pop(key, None)
+            if dead is not None:
+                to_close.append(dead)
+            while len(_WORKER_POOL) >= max_workers:
+                _, old = _WORKER_POOL.popitem(last=False)
+                to_close.append(old)
+        # Close evicted workers before loading new weights to free GPU VRAM cleanly.
+        for old in to_close:
+            old.close()
+        worker = _SharedSmolVLAWorker(model_dir)
+        with _POOL_STATE_LOCK:
+            _WORKER_POOL[key] = worker
+            _WORKER_POOL.move_to_end(key)
+        return worker
+
+
+def close_all_smolvla_workers() -> None:
+    with _POOL_STATE_LOCK:
+        workers = list(_WORKER_POOL.values())
+        _WORKER_POOL.clear()
+    for w in workers:
+        w.close()
+
+
+class SmolVLAPolicyRunner:
+    """Runs 450M SmolVLAPolicy closed-loop with replanning + max_q=2 temporal ensembling."""
+
+    def __init__(self, lab_root: Path, model_id: str = "so100_smolvla", *, shared: bool = False):
+        self.lab_root = Path(lab_root).resolve()
+        self.model_id = valid_id(model_id)
+        self.model_dir = self.lab_root / "datasets" / "models" / self.model_id
+        stats_path = self.model_dir / "so100_stats.json"
+        if not stats_path.is_file() or not (self.model_dir / "config.json").is_file():
+            raise FileNotFoundError(f"SmolVLA model files missing under {self.model_dir}")
+        self.stats = json.loads(stats_path.read_text(encoding="utf-8"))
+        self.camera_keys = list(self.stats.get("camera_keys") or ["front", "wrist"])
+        self.state_joints = list(
+            self.stats.get("state_joints")
+            or ["waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw", "left", "right"]
+        )
+        self.instruction = str(self.stats.get("task_instruction") or "")
+        self.replan_every = 2
+        self._shared = bool(shared)
+        self._worker = (
+            _acquire_shared_worker(self.lab_root, self.model_id, self.model_dir)
+            if self._shared
+            else _SharedSmolVLAWorker(self.model_dir)
+        )
+        self._chunks: list[tuple[np.ndarray, int]] = []
+        self._step_idx = 0
+
+    def _rpc(self, payload: dict) -> dict:
+        return self._worker.rpc(payload)
 
     def reset(self) -> None:
         self._chunks.clear()
@@ -158,16 +243,12 @@ class SmolVLAPolicyRunner:
         return [float(v) for v in out]
 
     def close(self) -> None:
-        p = getattr(self, "_proc", None)
-        if p is not None and p.poll() is None:
-            try:
-                if p.stdin:
-                    p.stdin.write(json.dumps({"cmd": "close"}) + "\n")
-                    p.stdin.flush()
-                p.wait(timeout=2)
-            except Exception:
-                p.kill()
-        self._proc = None
+        self._chunks.clear()
+        if not getattr(self, "_shared", False):
+            w = getattr(self, "_worker", None)
+            if w is not None:
+                w.close()
+            self._worker = None
 
     def __del__(self):
         try:
