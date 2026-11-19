@@ -14,26 +14,26 @@ REGISTRY_VERSION = "1.0"
 # kind -> (online provider, local import, notes)
 ASSET_KIND_SUPPORT = {
     AssetKind.task_object: {"online": "lux3d", "local_import": True,
-                            "note": "单体可操作物体；支持多动态物体共存（task_asset + asset_nodes role=dynamic）；需标定尺寸"},
+                            "note": "单体可操作物体；生成不保证精确尺寸/拓扑，需标定后才能绑定物理"},
     AssetKind.static_prop: {"online": "lux3d", "local_import": True,
-                            "note": "静态道具；支持 box/cylinder/plane 及凹面体素复合盒分解（compound）保留容器内腔壁接触"},
+                            "note": "静态道具；碰撞用 box/cylinder/plane 代理，不做凸分解"},
     AssetKind.robot_visual: {"online": "lux3d", "local_import": True,
-                             "note": "机械臂外观或部件模型；可用 part_split 拆件装配至运动学连杆并导出标准 URDF"},
+                             "note": "仅机器人外观模型；不生成可动物理机器人/URDF/关节"},
     AssetKind.environment_splat: {"online": "aholo_world", "local_import": True,
                                   "note": "高斯背景；仅 hybrid 固定前视渲染，全景预览≠三维编辑"},
-    AssetKind.environment_mesh: {"online": "lux3d", "local_import": True,
-                                 "note": "三角网格工作台/环境；支持在线生成或本地导入，并自动生成复合凹面碰撞盒"},
+    AssetKind.environment_mesh: {"online": None, "local_import": True,
+                                 "note": "预留：在线网格环境生成未支持；仅本地导入标定网格"},
 }
 
 PROVIDERS = {
     "lux3d": {
         "label": "Lux3D 单体生成（Aholo 中国）",
         "env_keys": ["AHOLO_API_KEY", "LUX3D_CN_API_KEY", "LUX3D_API_KEY"],
-        "supported_params": ["prompt", "img", "generation_mode", "version", "style", "face_count", "output_format", "enable_pbr"],
+        "supported_params": ["prompt", "version", "style", "face_count", "output_format", "enable_pbr"],
         "unsupported_params": ["seed", "negative_prompt", "layout", "colliders", "urdf",
                                "mass", "friction", "joint_limits"],
         "outputs": ["glb"],
-        "note": "支持文本/参考图生成 (text_to_3d / img_to_3d)；negative_prompt 不支持，质量/摩擦/关节不传给 3D API",
+        "note": "negative_prompt 不支持，合并进文本；质量/摩擦/关节不传给 3D API",
     },
     "aholo_world": {
         "label": "Aholo World 场景生成/重建",
@@ -54,15 +54,12 @@ PROVIDERS = {
 }
 
 PHYSICS_LIMITS = {
-    "collision_proxies": ["box", "cylinder", "plane", "compound_boxes"],
-    "convex_decomposition": "voxel_box_compound",
-    "urdf_generation": "template_and_part_assembly",
-    "urdf_export": True,
-    "joint_generation": "part_assembly_with_kinematics",
-    "part_split": "supported_local_and_lux3d_api",
-    "auto_rig": "humanoid_only_not_for_robotics_urdf",
-    "multi_dynamic_asset_nodes": True,
-    "support_plane_z_parameterized": True,
+    "collision_proxies": ["box", "cylinder", "plane"],
+    "convex_decomposition": False,
+    "urdf_generation": False,
+    "joint_generation": False,
+    "part_split": "future_research",
+    "auto_rig": "future_research",
     "sim2real": False,
     "inertia": "proxy-based estimate, labeled as such; never measured",
     "solid_cylinder_for_insertion": False,

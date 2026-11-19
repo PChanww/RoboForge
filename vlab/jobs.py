@@ -7,12 +7,16 @@ interrupted so the UI can offer recovery.
 """
 from __future__ import annotations
 
+from contextlib import nullcontext, suppress
+import errno
 import json
+import logging
 import os
 import shlex
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,27 +24,38 @@ from .scene_assets import valid_id
 from .store import ConfigStore
 
 KINDS = {"collect", "train", "train_visual", "eval", "eval_visual", "export", "export_visual",
-         "convert", "checks", "lux3d_generate"}
+         "convert", "checks", "lux3d_generate", "train_transport"}
 
 
 def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def job_disk_full(exc):
+    return exc.errno == errno.ENOSPC or getattr(exc, "winerror", None) in (39, 112)
+
+
+def job_storage_message(exc):
+    if job_disk_full(exc):
+        return "项目磁盘空间不足，无法保存后台任务。释放空间后请重试。"
+    return "后台任务无法写入项目目录，请检查文件占用和写入权限。"
+
+
 class JobManager:
     def __init__(self, lab_root: Path):
         self.lab = Path(lab_root)
         self.dir = self.lab / "datasets" / "jobs"
-        self.dir.mkdir(parents=True, exist_ok=True)
         self.index_path = self.dir / "jobs.json"
         self._lock = threading.Lock()
+        self._gpu_training = threading.Lock()
         self._procs = {}
         self._jobs = self._load()
-        for j in self._jobs.values():
-            if j["status"] == "running":
-                j["status"] = "interrupted"
-                j["finished"] = _now()
-        self._save()
+        interrupted = [job for job in self._jobs.values() if job["status"] in ("queued", "running")]
+        if interrupted:
+            finished = _now()
+            for job in interrupted:
+                job.update(status="interrupted", finished=finished)
+            self._save_status(*interrupted)
 
     def _load(self):
         if self.index_path.is_file():
@@ -48,9 +63,30 @@ class JobManager:
         return {}
 
     def _save(self):
-        tmp = self.index_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(list(self._jobs.values()), ensure_ascii=False, indent=1), encoding="utf-8")
-        tmp.replace(self.index_path)
+        tmp = self.index_path.with_suffix(f".{uuid.uuid4().hex}.tmp")
+        try:
+            tmp.write_text(json.dumps(list(self._jobs.values()), ensure_ascii=False, indent=1), encoding="utf-8")
+            for delay in (.025, .05, .1, .2, None):
+                try:
+                    tmp.replace(self.index_path)
+                    break
+                except OSError as exc:
+                    if delay is None or getattr(exc, "winerror", None) not in (5, 32, 33):
+                        raise
+                    time.sleep(delay)
+        finally:
+            with suppress(OSError):
+                tmp.unlink(missing_ok=True)
+
+    def _save_status(self, *jobs):
+        for job in jobs:
+            job.pop("storage_error", None)
+        try:
+            self._save()
+        except OSError as exc:
+            for job in jobs:
+                job["storage_error"] = job_storage_message(exc)
+            logging.getLogger(__name__).warning("Job index update not saved (%s): %s", self.index_path, exc)
 
     def list(self):
         with self._lock:
@@ -68,15 +104,37 @@ class JobManager:
 
     def _command(self, kind, params):
         lab = str(self.lab)
+        if kind == "train_transport":
+            from .transport_training import MODELS
+            model = params.get("model")
+            epochs = params.get("epochs", 20)
+            ids = params.get("dataset_ids")
+            if not isinstance(model, str) or model not in MODELS:
+                raise ValueError("Unknown transport policy model")
+            if type(epochs) is not int or not 1 <= epochs <= 100:
+                raise ValueError("epochs must be an integer between 1 and 100")
+            if not isinstance(ids, list) or not 1 <= len(ids) <= 64:
+                raise ValueError("Select 1-64 mobile demonstration runs")
+            ids = [valid_id(value) for value in ids]
+            if len(set(ids)) != len(ids) or any(not value.startswith("transport_") for value in ids):
+                raise ValueError("Mobile demonstration IDs must be distinct transport runs")
+            executable = "Scripts/python.exe" if os.name == "nt" else "bin/python"
+            python = Path(os.environ.get("VLAB_TRANSPORT_TRAIN_PYTHON", self.lab / ".venv-vla" / executable))
+            if not python.is_file():
+                raise ValueError("GPU runtime .venv-vla is unavailable")
+            return [str(python), "-B", "-u", "-m", "scripts.train_mobile_policy", "--model", model,
+                    "--job-id", params["job_id"], "--epochs", str(epochs), "--datasets", *ids], lab
         if kind == "collect":
             if "config_snapshot" not in params or "out" not in params:
                 raise ValueError("Collection requires a saved job config snapshot and output directory")
             args = [sys.executable, "scripts/collect_expert.py", "--out", str(params["out"]),
                     "--config", str(params["config_snapshot"])]
-            if params.get("episodes") is not None:
-                args += ["--episodes", str(int(params["episodes"]))]
             if params.get("plan_path"):
                 args += ["--plan", str(params["plan_path"])]
+            if params.get("preview_dir"):
+                args += ["--preview-dir", str(params["preview_dir"])]
+            if params.get("realtime"):
+                args.append("--realtime")
             if params.get("provenance"):
                 args += ["--provenance", json.dumps(params["provenance"], ensure_ascii=False)]
             return args, lab
@@ -120,8 +178,6 @@ class JobManager:
                 args = ["scripts/train_image_bc.py", "--lab", linux_lab, "--dataset", dataset,
                         "--model-out", valid_id(params.get("model_id", params.get("model_out", "visual_bc"))),
                         "--epochs", str(epochs)]
-                if params.get("cameras"):
-                    args += ["--cameras", str(params["cameras"])]
             elif kind == "eval_visual":
                 snapshot = Path(params["config_snapshot"]).relative_to(self.lab).as_posix()
                 args = ["scripts/eval_image_policy.py", "--lab", linux_lab,
@@ -167,6 +223,8 @@ class JobManager:
             raise ValueError(f"kind must be one of {sorted(KINDS)}")
         jid = uuid.uuid4().hex[:12]
         params = dict(params)
+        if kind == "train_transport":
+            params["job_id"] = jid
         jdir = self.dir / jid
         jdir.mkdir(parents=True, exist_ok=True)
         if kind in {"collect", "eval_visual"}:
@@ -183,7 +241,7 @@ class JobManager:
                 if out.exists():
                     raise ValueError(f"Collection {dataset} already exists; choose a new dataset_id")
                 out.mkdir(parents=True, exist_ok=False)
-                params.update(dataset_id=dataset, out=str(out))
+                params.update(dataset_id=dataset, out=str(out), preview_dir=str(jdir))
                 if "plan" in params:
                     plan = params["plan"]
                     if not isinstance(plan, list) or not plan or any(not isinstance(p, dict) or "asset" not in p or not isinstance(p.get("seed"), int) for p in plan):
@@ -203,57 +261,70 @@ class JobManager:
                "log": str(jdir / "log.txt"), "returncode": None}
         with self._lock:
             self._jobs[jid] = job
-            self._save()
+            try:
+                self._save()
+            except OSError:
+                del self._jobs[jid]
+                raise
         threading.Thread(target=self._run, args=(jid,), daemon=True).start()
         return job
 
     def _run(self, jid):
         job = self.get(jid)
+        resource = self._gpu_training if job["kind"] == "train_transport" else nullcontext()
+        with resource:
+            self._execute(job)
+
+    def _execute(self, job):
+        jid = job["id"]
+        rc, error = None, None
         try:
             cmd, cwd = self._command(job["kind"], job["params"])
-        except ValueError as exc:
-            job.update(status="failed", finished=_now(), error=str(exc))
-            with self._lock:
-                self._save()
-            return
-        logp = self.dir / jid / "log.txt"
-        with open(logp, "w", encoding="utf-8") as log:
-            log.write(f"$ {' '.join(cmd)}\n")
-            log.flush()
-            with self._lock:
-                if job["status"] == "cancelled":
-                    return
-                try:
+            with (self.dir / jid / "log.txt").open("w", encoding="utf-8") as log:
+                log.write(f"$ {' '.join(cmd)}\n")
+                log.flush()
+                with self._lock:
+                    if job["status"] == "cancelled":
+                        return
                     proc = subprocess.Popen(cmd, cwd=cwd, stdout=log, stderr=subprocess.STDOUT,
                                             env={**os.environ, "PYTHONIOENCODING": "utf-8"})
-                except OSError as exc:
-                    job.update(status="failed", error=str(exc), finished=_now())
-                    self._save()
-                    return
-                self._procs[jid] = proc
-                job.update(status="running", started=_now())
-                self._save()
-            rc = proc.wait()
+                    self._procs[jid] = proc
+                    job.update(status="running", started=_now())
+                    self._save_status(job)
+                rc = proc.wait()
+        except (OSError, ValueError) as exc:
+            error = job_storage_message(exc) if isinstance(exc, OSError) and job_disk_full(exc) else str(exc)
+
         with self._lock:
             self._procs.pop(jid, None)
-            job.update(status="cancelled" if job["status"] == "cancelled" else ("succeeded" if rc == 0 else "failed"), finished=_now(), returncode=rc)
-            self._save()
+            if job["status"] != "cancelled":
+                job.update(status="succeeded" if rc == 0 else "failed", finished=_now())
+                if error:
+                    job["error"] = error
+            job["returncode"] = rc
+            self._save_status(job)
 
     def stop(self, jid):
         with self._lock:
-            proc = self._procs.get(jid)
             job = self._jobs.get(jid)
-        if not job:
-            raise KeyError(jid)
-        if proc and proc.poll() is None:
-            proc.terminate()
+            if job is None:
+                raise KeyError(jid)
+            if job["status"] not in ("queued", "running"):
+                return job
+            proc = self._procs.get(jid)
+            if proc is not None:
+                if proc.poll() is not None:
+                    return job
+                try:
+                    proc.terminate()
+                except ProcessLookupError:
+                    return job
+            job.update(status="cancelled", finished=_now())
+            self._save_status(job)
+
+        if proc is not None:
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
-            job.update(status="cancelled", finished=_now())
-        else:
-            job.update(status="cancelled", finished=_now())
-        with self._lock:
-            self._save()
         return job

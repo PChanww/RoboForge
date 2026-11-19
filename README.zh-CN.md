@@ -20,9 +20,11 @@
 
 网页自由观察相机与策略使用的传感器相机分别配置。当前界面主要使用中文，文档提供中英文版本。
 
-实验结果、验证证据与实现限制见[审计报告](docs/AUDIT.zh-CN.md)。接手开发请先读[迁移交接文档](MIGRATION_HANDOFF.zh-CN.md)（真实现状、已知缺陷、使用教程、git 信息）。
+实验结果、验证证据与实现限制见[审计报告](docs/AUDIT.zh-CN.md)。
 
 ## 快速开始
+
+本地 C 盘移动搬运的完整流程、CUDA 启动、停止保存和卡顿排查见 [VLA 仿真工作台操作手册](frontend/VLA_WORKBENCH.md)。
 
 以下命令从项目目录 `vla-lab` 执行。已准备的主机使用 Windows/PowerShell，仿真环境为 Python 3.13。前端需要 Node.js/npm，相机渲染需要可用的 OpenGL 上下文。
 

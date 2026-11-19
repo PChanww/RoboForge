@@ -224,37 +224,34 @@ class ControllerConfig(BaseModel):
         return self
 
 
+class DuckConveyorConfig(BaseModel):
+    belt_speed_m_s: float = Field(default=.025, gt=0, le=.06)
+    pick_x: float = Field(default=-.115, ge=-.15, le=-.06)
+    random_pose: bool = True
+    continuous: bool = True
+    chassis_asset: str = "imported/four-wheel-robot-chassis-82e8e5"
+
+
 class TaskConfig(BaseModel):
     id: str = "cup_pick_place"
     plugin: str = "cup_pick_place"
     asset: str = "standard"
     goal_xy: list[float] = [0.133, 0.050]
     goal_surface_m: float = 0.009
-    goal_half_extents: list[float] = [0.074, 0.069]
-    goal_tray_collider_ref: str | None = None
-    show_builtin_tray: bool = True
     time_limit_s: float = 9.0
     lift_threshold_m: float = 0.031
     stable_ticks: int = 6
     spawn_min: list[float] = [-0.154, -0.081]
     spawn_max: list[float] = [-0.085, -0.026]
     instruction: str = "Place the cup in the tray."
+    object_color_rgb: list[float] | None = None
+    duck_conveyor: DuckConveyorConfig = Field(default_factory=DuckConveyorConfig)
 
     @model_validator(mode="after")
-    def _validate_goal(self):
-        from .scene_assets import valid_id
-        if len(self.goal_xy) != 2 or any(not math.isfinite(v) for v in self.goal_xy):
-            raise ValueError("task goal_xy requires two finite coordinates")
-        if len(self.goal_half_extents) != 2 or any(not math.isfinite(v) or v <= 0 for v in self.goal_half_extents):
-            raise ValueError("task goal_half_extents requires two positive finite half-sizes")
-        if not math.isfinite(self.goal_surface_m) or self.goal_surface_m < 0:
-            raise ValueError("task goal_surface_m must be finite and non-negative")
-        if self.show_builtin_tray and self.goal_surface_m <= 0:
-            raise ValueError("task goal_surface_m must be positive when show_builtin_tray=True")
-        if self.goal_tray_collider_ref is not None:
-            valid_id(self.goal_tray_collider_ref)
-        if not self.show_builtin_tray and not self.goal_tray_collider_ref:
-            raise ValueError("task requires goal_tray_collider_ref when show_builtin_tray=False")
+    def _color(self):
+        if self.object_color_rgb is not None and (len(self.object_color_rgb) != 3 or
+                any(not math.isfinite(v) or not 0 <= v <= 1 for v in self.object_color_rgb)):
+            raise ValueError("object_color_rgb requires three channels in [0,1]")
         return self
 
 
@@ -311,6 +308,31 @@ class SceneInstance(BaseModel):
         return self
 
 
+class SceneProp(BaseModel):
+    """Imported static scene mesh, with an optional explicitly estimated box proxy."""
+    name: str
+    asset: str
+    position: list[float] = [0, 0, 0]
+    quaternion_xyzw: list[float] = [0, 0, 0, 1]
+    uniform_scale: float = 1.0
+    collision: bool = False
+
+    @model_validator(mode="after")
+    def _checks(self):
+        from .scene_assets import valid_id
+        valid_id(self.name)
+        if not self.asset.startswith("imported/"):
+            raise ValueError("Scene props must reference imported/<asset_id>")
+        valid_id(self.asset.removeprefix("imported/"))
+        _scene_pose(self.position, self.quaternion_xyzw)
+        if (not all(math.isfinite(v) for v in self.quaternion_xyzw)
+                or sum(v*v for v in self.quaternion_xyzw) < 1e-12):
+            raise ValueError("Scene prop quaternion must normalize to a finite rotation")
+        if not math.isfinite(self.uniform_scale) or self.uniform_scale <= 0:
+            raise ValueError("Scene prop uniform_scale must be positive and finite")
+        return self
+
+
 class SceneAssetManifest(BaseModel):
     asset_id: str
     revision: int = 1
@@ -333,37 +355,6 @@ class SceneAssetManifest(BaseModel):
     status: str = "ready"
 
 
-class SceneAssetNode(BaseModel):
-    node_id: str
-    asset_ref: str
-    role: Literal["visual_only", "static", "dynamic"] = "static"
-    position: list[float] = [0.0, 0.0, 0.0]
-    quaternion_xyzw: list[float] = [0.0, 0.0, 0.0, 1.0]
-    uniform_scale: float = 1.0
-    collider_ref: str | None = None
-    depends_on: list[str] = []
-    mass_kg: float | None = None
-    friction: list[float] | None = None
-    collision_mode: Literal["auto", "primitive", "compound"] = "auto"
-
-    @model_validator(mode="after")
-    def _checks(self):
-        from .scene_assets import valid_id
-        valid_id(self.node_id)
-        _scene_pose(self.position, self.quaternion_xyzw)
-        if not math.isfinite(self.uniform_scale) or self.uniform_scale <= 0:
-            raise ValueError(f"asset node {self.node_id}: uniform_scale must be positive and finite")
-        if self.collider_ref is not None:
-            valid_id(self.collider_ref)
-        if self.mass_kg is not None and (not math.isfinite(self.mass_kg) or self.mass_kg <= 0):
-            raise ValueError(f"asset node {self.node_id}: mass_kg must be positive and finite")
-        if self.friction is not None and (
-            len(self.friction) != 3 or any(not math.isfinite(v) or v < 0 for v in self.friction)
-        ):
-            raise ValueError(f"asset node {self.node_id}: friction requires three non-negative floats")
-        return self
-
-
 class SceneConfig(BaseModel):
     physics_backend: Literal["mujoco"] = "mujoco"
     physics_dt: float = 0.002
@@ -372,47 +363,30 @@ class SceneConfig(BaseModel):
     coordinate_convention: str = "z_up_right_handed"
     environment: SceneInstance | None = None
     colliders: list[SceneCollider] = []
-    asset_nodes: list[SceneAssetNode] = []
+    props: list[SceneProp] = Field(default_factory=list)
     sensor_renderer: Literal["mujoco", "hybrid"] = "mujoco"
     use_default_table: bool = True
     work_surface_z: float = 0.0
+    table_color_rgb: list[float] = [.29, .37, .39]
 
     @model_validator(mode="after")
     def _dt(self):
+        if len(self.table_color_rgb) != 3 or any(not math.isfinite(v) or not 0 <= v <= 1 for v in self.table_color_rgb):
+            raise ValueError("table_color_rgb requires three channels in [0,1]")
         if not 0 < self.physics_dt <= 0.01:
             raise ValueError("physics_dt must be in (0, 0.01]")
         names = [c.name for c in self.colliders]
         if len(names) != len(set(names)):
             raise ValueError("Scene collider names must be unique")
-        nids = [n.node_id for n in self.asset_nodes]
-        if len(nids) != len(set(nids)):
-            raise ValueError("Scene asset_node ids must be unique")
-        collider_set = set(names)
-        node_map = {n.node_id: n for n in self.asset_nodes}
-        for n in self.asset_nodes:
-            if n.collider_ref is not None and n.collider_ref not in collider_set:
-                raise ValueError(f"asset node {n.node_id}: collider_ref {n.collider_ref!r} not in scene.colliders")
-            for dep in n.depends_on:
-                if dep not in node_map:
-                    raise ValueError(f"asset node {n.node_id}: depends_on unknown node {dep!r}")
-        # cycle detection
-        visiting, visited = set(), set()
-
-        def _dfs(nid: str):
-            if nid in visited:
-                return
-            if nid in visiting:
-                raise ValueError(f"asset node dependency cycle involving {nid!r}")
-            visiting.add(nid)
-            for dep in node_map[nid].depends_on:
-                _dfs(dep)
-            visiting.remove(nid)
-            visited.add(nid)
-
-        for nid in node_map:
-            _dfs(nid)
-        if not math.isfinite(self.work_surface_z) or not -0.10 <= self.work_surface_z <= 0.12:
-            raise ValueError("work_surface_z must be finite and within [-0.10, 0.12] m")
+        prop_names = [p.name for p in self.props]
+        if len(prop_names) != len(set(prop_names)):
+            raise ValueError("Scene prop names must be unique")
+        generated_names = {f"scene_prop_{p.name}_{suffix}"
+                           for p in self.props for suffix in ("visual", "contact")}
+        if (set(names) & set(prop_names)) or (set(names) & generated_names):
+            raise ValueError("Scene prop names must not conflict with collider names")
+        if self.work_surface_z != 0:
+            raise ValueError("Current tabletop task only supports work_surface_z=0; task-frame adaptation is not implemented")
         return self
 
 
@@ -458,9 +432,4 @@ class ProjectConfig(BaseModel):
         for s in self.sensors:
             if s.parent not in bodies:
                 raise ValueError(f"sensor {s.id}: parent {s.parent} is not a known body")
-        if self.task.show_builtin_tray and self.task.goal_surface_m <= self.scene.work_surface_z + 1e-4:
-            raise ValueError(
-                f"task goal_surface_m ({self.task.goal_surface_m}) must exceed work_surface_z "
-                f"({self.scene.work_surface_z}) when show_builtin_tray=True"
-            )
         return self

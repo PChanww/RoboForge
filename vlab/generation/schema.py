@@ -11,7 +11,6 @@ Rules encoded here:
 from __future__ import annotations
 
 import math
-import re
 from enum import Enum
 from typing import Literal
 
@@ -95,31 +94,6 @@ class AssetRole(str, Enum):
     dynamic = "dynamic"
 
 
-_DATA_IMAGE_RE = re.compile(r"^data:image/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=\s]+$", re.IGNORECASE)
-
-
-def validate_reference_image(v: str | None) -> str | None:
-    if v is None:
-        return None
-    if not isinstance(v, str):
-        raise ValueError("reference_image must be a string URL or data:image URI")
-    s = v.strip()
-    if not s:
-        return None
-    if s.lower().startswith(("http://", "https://")):
-        if len(s) > 2048 or any(ch.isspace() for ch in s):
-            raise ValueError("reference_image URL must be <= 2048 chars without whitespace")
-        return s
-    if s.lower().startswith("data:image/"):
-        if len(s) > 6_000_000:
-            raise ValueError("reference_image data URI exceeds 6 MB limit")
-        if not _DATA_IMAGE_RE.match(s):
-            raise ValueError("reference_image data URI must be base64 png/jpeg/webp")
-        header, _, b64 = s.partition(",")
-        return f"{header},{re.sub(r'\\s+', '', b64)}"
-    raise ValueError("reference_image must be an http(s) URL or data:image/(png|jpeg|webp);base64 URI")
-
-
 class AssetSpec(BaseModel):
     schema_version: str = GENERATION_SCHEMA_VERSION
     kind: AssetKind = AssetKind.task_object
@@ -132,16 +106,10 @@ class AssetSpec(BaseModel):
     depth: Dimension = Field(default_factory=Dimension)
     radius: Dimension = Field(default_factory=Dimension)
     appearance: str = ""
-    reference_image: str | None = None
     has_handle: bool | None = None  # None = user did not say
     open_top: bool | None = None
     provenance: dict[str, FieldProvenance] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
-
-    @field_validator("reference_image")
-    @classmethod
-    def _ref_image(cls, v):
-        return validate_reference_image(v)
 
     @model_validator(mode="after")
     def _role_kind(self):
@@ -192,7 +160,6 @@ class PhysicsSpec(BaseModel):
     inertia_basis: Literal["proxy_estimate", "user_explicit", "unknown"] = "unknown"
     contact_notes: str = ""
     graspable: bool | None = None  # None = unknown; never auto-true
-    graspable_provenance: FieldProvenance = Field(default_factory=FieldProvenance)
     validation: list[str] = Field(default_factory=list)
 
     @field_validator("friction")
@@ -217,19 +184,11 @@ class AssetNode(BaseModel):
     uniform_scale: float = 1.0
     collider_ref: str | None = None
     depends_on: list[str] = Field(default_factory=list)
-    mass_kg: float | None = None
-    friction: list[float] | None = None
-    collision_mode: Literal["auto", "primitive", "compound"] = "auto"
 
     @field_validator("uniform_scale")
     @classmethod
     def _scale(cls, v):
         return _positive_finite(v, "uniform_scale")
-
-    @field_validator("mass_kg")
-    @classmethod
-    def _mass(cls, v):
-        return _positive_finite(v, "mass_kg")
 
 
 class SceneRecipe(BaseModel):
@@ -247,36 +206,18 @@ class SceneRecipe(BaseModel):
     sensor_renderer: Literal["mujoco", "hybrid"] = "mujoco"
     layout_constraints: list[str] = Field(default_factory=list)
     calibration: dict = Field(default_factory=dict)
-    goal_tray_node_id: str | None = None
-    goal_xy: list[float] | None = None
-    goal_surface_m: float | None = None
-    goal_half_extents: list[float] | None = None
     versions: dict = Field(default_factory=dict)
     manifest_hash: str = ""
 
     @model_validator(mode="after")
     def _checks(self):
-        if not math.isfinite(self.support_plane_z) or not -0.10 <= self.support_plane_z <= 0.12:
-            raise ValueError("support_plane_z must be finite and within [-0.10, 0.12] m")
+        if self.support_plane_z != 0:
+            raise ValueError("task frame requires support_plane_z=0; arbitrary table heights are not supported")
         ids = [n.node_id for n in self.asset_nodes]
         if len(ids) != len(set(ids)):
             raise ValueError("duplicate asset node ids")
         if self.scene_mode == SceneMode.background_scene and not self.background_ref:
             raise ValueError("background_scene requires a background_ref")
-        if self.goal_tray_node_id is not None:
-            node = next((n for n in self.asset_nodes if n.node_id == self.goal_tray_node_id), None)
-            if node is None:
-                raise ValueError(f"goal_tray_node_id {self.goal_tray_node_id!r} not in asset_nodes")
-            if node.role != AssetRole.static:
-                raise ValueError(f"goal_tray_node_id {self.goal_tray_node_id!r} must have role='static'")
-        if self.goal_xy is not None and (len(self.goal_xy) != 2 or any(not math.isfinite(v) for v in self.goal_xy)):
-            raise ValueError("goal_xy requires two finite floats [x, y]")
-        if self.goal_surface_m is not None and (not math.isfinite(self.goal_surface_m) or self.goal_surface_m <= 0):
-            raise ValueError("goal_surface_m must be finite and positive")
-        if self.goal_half_extents is not None and (
-            len(self.goal_half_extents) != 2 or any(not math.isfinite(v) or v <= 0 for v in self.goal_half_extents)
-        ):
-            raise ValueError("goal_half_extents requires two positive finite floats [hx, hy]")
         return self
 
 
@@ -284,9 +225,7 @@ class CompiledGenerationRequest(BaseModel):
     compiler_version: str
     spec_id: str
     spec_revision: int
-    base_spec_hash: str = ""
     spec_hash: str
-    request_hash: str = ""
     provider: Literal["lux3d", "aholo_world", "local_import"]
     template: Literal["single_object", "environment_workspace", "composed_workspace"]
     prompt_en: str
@@ -320,7 +259,6 @@ class ChatMessage(BaseModel):
 class PlannerQuestion(BaseModel):
     id: str
     text: str
-    field: str | None = None
     options: list[str] = Field(default_factory=list)
     answer: str | None = None
     status: Literal["open", "answered", "skipped"] = "open"

@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from dotenv import load_dotenv
 
 import gymnasium
 
@@ -22,6 +23,9 @@ from .schema import ProjectConfig
 from .store import ConfigStore, validate_config
 from .scene_assets import valid_id, scene_asset_dir, load_scene, contained_file
 
+# Read backend-only local credentials before provider objects are constructed.
+# Explicit process environment variables take precedence over the local file.
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 LAB_ROOT = Path(os.environ.get("VLAB_ROOT", Path(__file__).resolve().parents[1]))
 
 
@@ -42,16 +46,6 @@ class AcquireBody(BaseModel):
 class TokenBody(BaseModel):
     token: str
     epoch: int | None = None
-
-
-class ExpertStepBody(TokenBody):
-    steps: int = 1
-
-
-class PolicyStepBody(TokenBody):
-    model_id: str = "hackathon_vla_bc"
-    steps: int = 1
-    instruction: str | None = None  # language input for VLA policies; ignored by fixed-action models
 
 
 class ActionBody(BaseModel):
@@ -133,30 +127,9 @@ class CollidersBody(BaseModel):
 class SceneCommitBody(BaseModel):
     environment: dict | None = None
     colliders: list[dict] = []
-    asset_nodes: list[dict] | None = None
     use_default_table: bool | None = None
     work_surface_z: float | None = None
     expected_version: int
-
-
-class AssemblePartsBody(BaseModel):
-    project_id: str = "default"
-    robot_id: str = "assembled_5r"
-    parts_slug: str
-    mapping: dict[str, str]
-    replace_primary: bool = True
-
-
-class DemoSetupBody(BaseModel):
-    project_id: str = "hackathon_demo"
-    with_world_background: bool = False
-    support_plane_z: float = 0.0
-
-
-class So100SetupBody(BaseModel):
-    project_id: str = "so100_real_loop"
-    live_generate: bool = False
-    with_world_background: bool = False
 
 
 def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
@@ -216,16 +189,6 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     if robot_mesh_dir.is_dir():
         app.mount("/assets/robot", StaticFiles(directory=robot_mesh_dir), name="robot_meshes")
 
-    @app.get("/assets/robots/{rid}/{fname}")
-    def custom_robot_mesh(rid: str, fname: str):
-        valid_id(rid)
-        if not fname.endswith(".obj") or "/" in fname or "\\" in fname or ".." in fname:
-            raise HTTPException(400, "invalid robot mesh filename")
-        p = contained_file(lab_root / "assets" / "robots" / rid, fname)
-        if not p.is_file():
-            raise HTTPException(404, "robot mesh not found")
-        return FileResponse(p, media_type="text/plain")
-
     @app.get("/api/v1/cup.obj")
     def cup_mesh(asset: str = "standard"):
         from . import tasks
@@ -234,15 +197,6 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         except Exception as exc:
             raise HTTPException(400, f"unknown asset {asset}: {exc}")
         return Response(mesh, media_type="text/plain")
-
-    @app.get("/api/v1/asset-mesh")
-    def asset_mesh(ref: str):
-        from .scene_builder import resolve_asset_node
-        try:
-            resolved = resolve_asset_node(lab_root, ref)
-        except Exception as exc:
-            raise HTTPException(404, f"unknown asset mesh {ref}: {exc}")
-        return Response(resolved["mesh_bytes"], media_type="text/plain")
 
     @app.exception_handler(sess_mod.ControlConflict)
     async def _conflict(_req, exc):
@@ -369,21 +323,10 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
             raise HTTPException(400, str(exc))
 
     @app.post("/api/v1/sessions/{sid}/expert_step")
-    def expert_step(sid: str, body: ExpertStepBody):
+    def expert_step(sid: str, body: TokenBody):
         s = _session(sid)
         try:
-            return s.expert(body.token, epoch=body.epoch, steps=body.steps)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc))
-
-    @app.post("/api/v1/sessions/{sid}/policy_step")
-    def policy_step(sid: str, body: PolicyStepBody):
-        s = _session(sid)
-        try:
-            return s.policy(body.token, model_id=body.model_id, epoch=body.epoch, steps=body.steps,
-                            instruction=body.instruction)
-        except FileNotFoundError as exc:
-            raise HTTPException(404, str(exc))
+            return s.expert(body.token, epoch=body.epoch)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
 
@@ -476,16 +419,24 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         return _legacy("GET", "/api/frame.jpg", {}, {})
 
     # -- background jobs / library / datasets / deployments ------------------
-    from .jobs import JobManager
+    from .jobs import JobManager, job_disk_full, job_storage_message
     from .aux_model import AuxModel
     jobs = JobManager(lab_root)
+    from .studio import register_studio
+    register_studio(app, store, jobs, lab_root)
+    from .duck_demo import register_duck_demo
+    register_duck_demo(app, store, lab_root)
+    from .mobile_api import register_mobile
+    register_mobile(app, store, lab_root)
 
     @app.post("/api/v1/jobs")
     def create_job(body: JobBody):
         try:
             return jobs.create(body.kind, body.params)
         except ValueError as exc:
-            raise HTTPException(400, str(exc))
+            raise HTTPException(400, str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(507 if job_disk_full(exc) else 503, job_storage_message(exc)) from exc
 
     @app.get("/api/v1/jobs")
     def list_jobs():
@@ -502,12 +453,26 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     def job_logs(jid: str, tail: int = 200):
         return {"lines": jobs.logs(jid, tail)}
 
+    @app.get("/api/v1/jobs/{jid}/preview")
+    def job_preview(jid: str):
+        valid_id(jid)
+        job = jobs.get(jid)
+        if not job or job["kind"] != "collect":
+            raise HTTPException(404, "unknown collection job")
+        p = jobs.dir / jid / "preview.json"
+        headers = {"Cache-Control": "no-store"}
+        if not p.is_file():
+            return JSONResponse({"images": {}, "completed": [], "tick": 0, "sim_time": 0}, headers=headers)
+        return Response(p.read_bytes(), media_type="application/json", headers=headers)
+
     @app.post("/api/v1/jobs/{jid}/stop")
     def stop_job(jid: str):
         try:
             return jobs.stop(jid)
-        except KeyError:
-            raise HTTPException(404, "unknown job")
+        except KeyError as exc:
+            raise HTTPException(404, "unknown job") from exc
+        except OSError as exc:
+            raise HTTPException(503, "无法向后台任务发送停止信号，请刷新任务状态后重试。") from exc
 
     @app.get("/api/v1/projects")
     def list_projects():
@@ -560,124 +525,38 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
             raise HTTPException(404, "unknown dataset")
         return json.loads(p.read_text(encoding="utf-8"))
 
-    @app.get("/api/v1/datasets/{did}/preview-frames")
-    def dataset_preview_frames(did: str, episode: int = 0):
-        import base64 as _b64_mod
-        import numpy as np
+    @app.get("/api/v1/datasets/{did}/episodes/{index}")
+    def download_episode(did: str, index: int):
         valid_id(did)
-        if did == "staging":
-            col_dir = lab_root / "datasets" / "staging"
-        else:
-            raw_id = did[len("collection__"):] if did.startswith("collection__") else did
-            col_dir = lab_root / "datasets" / "collections" / valid_id(raw_id)
-        npz_path = col_dir / "episodes" / f"ep{int(episode):03d}.npz"
-        mf_path = col_dir / "manifest.json"
-        if not npz_path.is_file():
-            return {"dataset": did, "cameras": [], "frames": []}
-        cams = ["front", "wrist"]
-        if mf_path.is_file():
-            mf = json.loads(mf_path.read_text(encoding="utf-8"))
-            if isinstance(mf.get("cameras"), list) and mf["cameras"]:
-                cams = list(mf["cameras"])
-        with np.load(npz_path, allow_pickle=True) as z:
-            n = int(len(z["frame_time"]))
-            if n == 0:
-                return {"dataset": did, "cameras": cams, "frames": []}
-            picks = [(0, "起始"), (n // 2, "中段"), (n - 1, "结束")]
-            seen = set()
-            frames = []
-            for idx, label in picks:
-                if idx in seen:
-                    continue
-                seen.add(idx)
-                item = {
-                    "index": int(idx),
-                    "label": label,
-                    "sim_time": round(float(z["frame_time"][idx]), 3),
-                    "action": [round(float(v), 4) for v in z["action"][idx].tolist()],
-                    "images": {},
-                }
-                for c in cams:
-                    k = f"jpeg_{c}"
-                    if k in z:
-                        raw = bytes(z[k][idx])
-                        item["images"][c] = _b64_mod.b64encode(raw).decode("ascii")
-                frames.append(item)
-        return {"dataset": did, "cameras": cams, "frames": frames}
-
-    @app.get("/api/v1/models")
-    def list_models():
-        models_dir = lab_root / "datasets" / "models"
-        reports_dir = lab_root / "datasets" / "reports"
-        entries: dict[str, dict] = {}
-        if models_dir.is_dir():
-            for p in sorted(models_dir.iterdir()):
-                if p.is_dir() and (p / "config.json").is_file() and (p / "so100_stats.json").is_file():
-                    mid = p.name
-                    try:
-                        st = json.loads((p / "so100_stats.json").read_text(encoding="utf-8"))
-                    except Exception:
-                        st = {}
-                    from .smolvla_infer import is_smolvla_loaded
-                    rec = entries.setdefault(mid, {
-                        "id": mid, "has_pt": True, "has_npz": False,
-                        "camera_keys": list(st.get("camera_keys") or ["front", "wrist"]),
-                        "runnable": True, "arch": str(st.get("arch") or "smolvla"),
-                        "language": True,
-                        "loaded": is_smolvla_loaded(lab_root, mid),
-                        "default_instruction": st.get("task_instruction") or "",
-                        "instructions": list(st.get("instructions") or []),
-                    })
-                elif p.suffix in {".pt", ".npz"}:
-                    mid = p.stem
-                    rec = entries.setdefault(mid, {
-                        "id": mid, "has_pt": False, "has_npz": False,
-                        "camera_keys": ["front"], "runnable": False,
-                        "language": False,
-                    })
-                    if p.suffix == ".pt":
-                        rec["has_pt"] = True
-                    if p.suffix == ".npz":
-                        rec["has_npz"] = True
-                        rec["runnable"] = True
-                        try:
-                            import numpy as np
-                            with np.load(p, allow_pickle=False) as d:
-                                if "camera_keys" in d:
-                                    rec["camera_keys"] = json.loads(str(d["camera_keys"].item()))
-                        except Exception:
-                            pass
-                else:
-                    continue
-                rp = reports_dir / f"train_{mid}.json"
-                if rp.is_file():
-                    try:
-                        rep = json.loads(rp.read_text(encoding="utf-8"))
-                        for fld in ("type", "camera_keys", "episodes", "frames", "val_mse", "gen_mse", "dataset"):
-                            if fld in rep:
-                                rec[fld] = rep[fld]
-                    except Exception:
-                        pass
-        return {"models": sorted(entries.values(), key=lambda x: (not x["runnable"], x["id"]))}
+        if not did.startswith("collection__"):
+            raise HTTPException(400, "only collected NPZ episodes are available")
+        collection = valid_id(did[len("collection__"):])
+        root = lab_root / "datasets" / "collections" / collection
+        manifest = get_dataset(did)
+        if index < 0 or index not in {row["index"] for row in manifest.get("episodes", [])}:
+            raise HTTPException(404, "unknown episode")
+        return FileResponse(root / "episodes" / f"ep{index:03d}.npz",
+                            filename=f"{collection}-ep{index:03d}.npz",
+                            media_type="application/octet-stream")
 
     @app.get("/api/v1/asset-library")
     def asset_library():
+        from .transport_asset_review import AssetCatalog
+        catalog = AssetCatalog(lab_root)
         items = [{"id": k, "name": v, "category": "object", "source": "builtin"} for k, v in
                  {"standard": "标准杯", "tall": "高杯", "wide": "宽口杯"}.items()]
         imp = lab_root / "assets" / "imported"
         if imp.is_dir():
-            for d in sorted(imp.iterdir()):
-                mf = d / "manifest.json"
-                if mf.is_file():
+            manifests = sorted(imp.glob("*/manifest.json"))
+            records = catalog.snapshot()["records"]
+            for mf in manifests:
+                ref = f"imported/{mf.parent.name}"
+                record = records.get(ref)
+                if mf.is_file() and (record is None or record.get("saved")):
                     m = json.loads(mf.read_text(encoding="utf-8"))
-                    items.append({"id": f"imported/{d.name}", "name": d.name, "category": "object",
-                                  "kind": m.get("kind", "task_object"), "role": m.get("role", "dynamic"),
-                                  "calibrated": m.get("calibrated", True),
+                    items.append({"id": ref, "name": (record or {}).get("name") or mf.parent.name, "category": "object",
                                   "source": m.get("source"), "generation_id": m.get("generation_id"),
-                                  "height_m": m.get("height_m"), "width_m": m.get("width_m"),
-                                  "depth_m": m.get("depth_m"), "collision_proxy": m.get("collision_proxy"),
-                                  "concave_detected": bool(m.get("concave_detected")),
-                                  "compound_boxes": (m.get("compound_proxy") or {}).get("box_count")})
+                                  "height_m": m.get("height_m")})
         rob = lab_root / "assets" / "robot"
         if rob.is_dir():
             items.append({"id": "robot/lux3d", "name": "lux3d 机械臂外观", "category": "robot",
@@ -798,54 +677,11 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
             raise HTTPException(404, "Scene has no preview image")
         return FileResponse(contained_file(d, name), media_type="image/jpeg")
 
-    @app.get("/api/v1/scene-assets/{asset_id}/revisions/{revision}/point-cloud")
-    def scene_point_cloud(asset_id: str, revision: int, max_points: int = 24000):
-        import base64
-        import numpy as np
-        from .gaussian import load_gaussians
-        try:
-            d, mf = load_scene(lab_root, asset_id, revision, physics=False)
-        except ValueError as exc:
-            raise HTTPException(404, str(exc))
-        if mf.get("ply_kind") != "gaussian":
-            raise HTTPException(400, "Scene is not a gaussian point cloud")
-        ply_rel = next((k for k in mf.get("files", {}) if k.lower().endswith(".ply")), None)
-        if not ply_rel:
-            raise HTTPException(404, "Gaussian PLY file not found")
-        g = load_gaussians(contained_file(d, ply_rel))
-        means = g["means"]
-        op = g["opacity"]
-        rgb = g["rgb"]
-        sc = g["scales"].max(axis=1)
-        mask = (op >= 0.25) & (sc <= 0.08)
-        if int(mask.sum()) < 100:
-            mask = op >= 0.10
-        idx = np.flatnonzero(mask)
-        limit = max(500, min(int(max_points), 60000))
-        if len(idx) > limit:
-            order = np.argsort(-op[idx])[:limit]
-            idx = idx[order]
-        pts = np.ascontiguousarray(means[idx], dtype=np.float32)
-        cols = np.ascontiguousarray(np.clip(rgb[idx] * 255.0, 0, 255), dtype=np.uint8)
-        floor_p5 = float(np.percentile(pts[:, 2], 5)) if len(pts) else 0.0
-        return {
-            "asset_id": asset_id,
-            "revision": revision,
-            "count": int(len(pts)),
-            "auto_floor_offset_z": round(-floor_p5 - 0.06, 4),
-            "bbox_min": pts.min(axis=0).tolist() if len(pts) else [0, 0, 0],
-            "bbox_max": pts.max(axis=0).tolist() if len(pts) else [0, 0, 0],
-            "positions_f32_b64": base64.b64encode(pts.tobytes()).decode("ascii"),
-            "colors_u8_b64": base64.b64encode(cols.tobytes()).decode("ascii"),
-        }
-
     @app.put("/api/v1/projects/{pid}/scene")
     def commit_scene(pid: str, body: SceneCommitBody):
         def mutate(data):
             data["scene"]["environment"] = body.environment
             data["scene"]["colliders"] = body.colliders
-            if body.asset_nodes is not None:
-                data["scene"]["asset_nodes"] = body.asset_nodes
             if body.use_default_table is not None:
                 data["scene"]["use_default_table"] = body.use_default_table
             if body.work_surface_z is not None:
@@ -854,7 +690,6 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         return {"version": saved.version,
                 "environment": saved.scene.environment.model_dump() if saved.scene.environment else None,
                 "colliders": [c.model_dump() for c in saved.scene.colliders],
-                "asset_nodes": [n.model_dump() for n in saved.scene.asset_nodes],
                 "use_default_table": saved.scene.use_default_table,
                 "work_surface_z": saved.scene.work_surface_z}
 
@@ -878,7 +713,6 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         cfg = store.load(pid) if store.exists(pid) else store.load("default")
         return {"environment": cfg.scene.environment.model_dump() if cfg.scene.environment else None,
                 "colliders": [c.model_dump() for c in cfg.scene.colliders],
-                "asset_nodes": [n.model_dump() for n in cfg.scene.asset_nodes],
                 "use_default_table": cfg.scene.use_default_table,
                 "work_surface_z": cfg.scene.work_surface_z, "version": cfg.version}
 
@@ -933,6 +767,18 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     from .generation.api import register_generation_api
     generation_ctx = register_generation_api(app, lab_root, store=store, world_store=gen_store,
                                              commit_scene=_commit_scene)
+    from .transport_api import register_transport
+    register_transport(app, store, lab_root, generation_ctx)
+    from .transport_training import MODELS, datasets as transport_datasets, trained_models
+
+    @app.get("/api/v1/transport/training")
+    def transport_training():
+        return {"datasets": transport_datasets(lab_root), "models": MODELS,
+                "checkpoints": trained_models(lab_root)}
+    from .transport_evaluation import register_transport_evaluation
+    register_transport_evaluation(app, lab_root)
+    from .scenarios import register_scenarios
+    register_scenarios(app, store, jobs, lab_root, generation_ctx)
 
     @app.get("/api/v1/lux3d/status")
     def lux3d_status():
@@ -979,75 +825,6 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         if not j:
             raise HTTPException(404, "unknown generation job")
         return j
-
-    @app.get("/api/v1/projects/{pid}/robot.urdf")
-    def export_robot_urdf(pid: str, robot_id: str | None = None):
-        from .robot_builder import robot_to_urdf
-        try:
-            valid_id(pid)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc))
-        cfg = store.load(pid) if store.exists(pid) else store.load("default")
-        r = cfg.robots[0] if robot_id is None else next((x for x in cfg.robots if x.id == robot_id), None)
-        if r is None:
-            raise HTTPException(404, f"unknown robot {robot_id!r}")
-        urdf = robot_to_urdf(r, mesh_uri_prefix=r.mesh_dir)
-        return Response(urdf, media_type="application/xml",
-                        headers={"Content-Disposition": f'attachment; filename="{pid}-{r.id}.urdf"'})
-
-    @app.post("/api/v1/robots/assemble-parts")
-    def assemble_robot_parts_ep(body: AssemblePartsBody):
-        from .robot_builder import assemble_robot_from_parts
-        try:
-            valid_id(body.project_id)
-            slug = valid_id(body.parts_slug)
-            parts_root = (lab_root / "assets" / "imported" / slug / "parts").resolve()
-            if not parts_root.is_dir():
-                raise HTTPException(404, f"parts directory missing for {slug!r}; run part-split first")
-            resolved_parts = {slot: contained_file(parts_root, rel) for slot, rel in body.mapping.items()}
-            cfg = store.load(body.project_id) if store.exists(body.project_id) else store.load("default")
-            base_robot = cfg.robots[0]
-            new_robot = assemble_robot_from_parts(base_robot, resolved_parts, lab_root, body.robot_id)
-            updated_robots = ([new_robot] if body.replace_primary
-                              else [*[r for r in cfg.robots if r.id != new_robot.id], new_robot])
-            candidate = cfg.model_copy(update={"project_id": body.project_id, "robots": updated_robots, "validation_status": "candidate"})
-            issues = validate_config(candidate, lab_root)
-            if issues:
-                raise HTTPException(400, {"issues": issues})
-            saved = store.save(candidate.model_copy(update={"validation_status": "validated"}))
-            return {"project_id": saved.project_id, "version": saved.version, "robot": new_robot.model_dump()}
-        except HTTPException:
-            raise
-        except Exception as exc:
-            raise HTTPException(400, str(exc))
-
-    @app.post("/api/v1/hackathon-demo/setup")
-    def hackathon_demo_setup(body: DemoSetupBody):
-        from .hackathon_demo import setup_hackathon_demo
-        try:
-            valid_id(body.project_id)
-            return setup_hackathon_demo(
-                lab_root, store,
-                project_id=body.project_id,
-                with_world_background=body.with_world_background,
-                support_plane_z=body.support_plane_z,
-            )
-        except Exception as exc:
-            raise HTTPException(400, str(exc))
-
-    @app.post("/api/v1/so100-prototype/setup")
-    def so100_prototype_setup(body: So100SetupBody):
-        from .so100_prototype import setup_so100_project
-        try:
-            valid_id(body.project_id)
-            return setup_so100_project(
-                lab_root, store,
-                project_id=body.project_id,
-                live_generate=body.live_generate,
-                with_world_background=body.with_world_background,
-            )
-        except Exception as exc:
-            raise HTTPException(400, str(exc))
 
     @app.on_event("shutdown")
     def _shutdown():

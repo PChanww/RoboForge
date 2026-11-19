@@ -7,6 +7,7 @@ creation across crashes. Poll/download retries reuse the known remote ID.
 from __future__ import annotations
 
 import json
+import logging
 import copy
 import hashlib
 import shutil
@@ -85,38 +86,6 @@ class WorldProvider:
                 "up_axis": (assets.get("semanticsMetadata") or {}).get("upAxis"),
                 "error": str(r.get("error") or status) if state == "failed" else None}
 
-    def list_remote_tasks(self, *, page_num: int = 0, page_size: int = 20) -> dict:
-        c = self._sdk()
-        res = c.list(page_num=page_num, page_size=page_size)
-        items = []
-        for it in (res.get("result") or []):
-            st_raw = it.get("status")
-            if st_raw in {"PENDING", "PREPROCESSING", "RUNNING"}:
-                st = "remote_processing"
-            elif st_raw == "SUCCEEDED":
-                st = "succeeded"
-            else:
-                st = "failed"
-            items.append({
-                "remote_id": str(it.get("worldId")),
-                "provider": "aholo_world",
-                "name": it.get("name"),
-                "scene": it.get("scene"),
-                "state": st,
-                "provider_status": st_raw,
-                "progress": it.get("progress"),
-                "created_ms": it.get("createTime"),
-                "updated_ms": it.get("updateTime"),
-                "cover": it.get("cover"),
-            })
-        return {
-            "provider": "aholo_world",
-            "total": int(res.get("totalCount") or len(items)),
-            "page": int(res.get("pageNum") or page_num),
-            "page_size": int(res.get("pageSize") or page_size),
-            "items": items,
-        }
-
     def download_assets(self, task_id, directory, *, status=None):
         st = status or self.get_status(task_id)
         directory = Path(directory)
@@ -126,40 +95,19 @@ class WorldProvider:
             if urlsplit(o["url"]).scheme != "https" or o["filename"] not in {"scene.ply", "scene.spz", "panorama.jpg"}:
                 raise ValueError("Invalid World output URL or filename")
             dest = directory / o["filename"]
-            if dest.exists() and self._valid_world_file(dest):
-                files.append({"path": str(dest), "role": o["role"], "sha256": hashlib.sha256(dest.read_bytes()).hexdigest()})
-                continue
-            dest.unlink(missing_ok=True)
-            partial = dest.with_suffix(dest.suffix + ".part")
-            try:
-                with urlopen(o["url"], timeout=90) as resp, partial.open("wb") as f:
-                    expected_raw = resp.headers.get("Content-Length") if getattr(resp, "headers", None) else None
-                    expected_len = int(expected_raw) if expected_raw and expected_raw.isdigit() else None
-                    while chunk := resp.read(1024 * 1024):
-                        if f.tell() + len(chunk) > 256 * 1024**2:
-                            raise ValueError("World output exceeds 256 MiB")
-                        f.write(chunk)
-                    if expected_len is not None and f.tell() != expected_len:
-                        raise ValueError(f"Truncated World download: expected {expected_len}, got {f.tell()}")
-                if not self._valid_world_file(partial, suffix=dest.suffix):
-                    raise ValueError(f"Invalid World output file signature for {o['filename']}")
-                partial.replace(dest)
-            finally:
-                partial.unlink(missing_ok=True)
+            if not dest.exists():
+                partial = dest.with_suffix(dest.suffix + ".part")
+                try:
+                    with urlopen(o["url"], timeout=90) as resp, partial.open("wb") as f:
+                        while chunk := resp.read(1024 * 1024):
+                            if f.tell() + len(chunk) > 256 * 1024**2:
+                                raise ValueError("World output exceeds 256 MiB")
+                            f.write(chunk)
+                    partial.replace(dest)
+                finally:
+                    partial.unlink(missing_ok=True)
             files.append({"path": str(dest), "role": o["role"], "sha256": hashlib.sha256(dest.read_bytes()).hexdigest()})
         return files
-
-    @staticmethod
-    def _valid_world_file(path: Path, suffix: str | None = None) -> bool:
-        if not path.is_file() or path.stat().st_size == 0:
-            return False
-        ext = (suffix or path.suffix).lower()
-        head = path.read_bytes()[:4]
-        if ext == ".ply":
-            return head.startswith(b"ply")
-        if ext == ".jpg":
-            return head.startswith(b"\xff\xd8")
-        return True
 
 
 class MockWorldProvider:
@@ -186,26 +134,6 @@ class MockWorldProvider:
             return {"state": "failed", "remote_id": task_id, "outputs": [], "error": "mock failure"}
         return {"state": "succeeded", "remote_id": task_id, "outputs": [], "error": None}
 
-    def list_remote_tasks(self, *, page_num: int = 0, page_size: int = 20) -> dict:
-        return {
-            "provider": "aholo_world",
-            "total": 1,
-            "page": page_num,
-            "page_size": page_size,
-            "items": [{
-                "remote_id": "mock-1",
-                "provider": "aholo_world",
-                "name": "Mock World Scene",
-                "scene": "indoor",
-                "state": "failed" if self.behavior == "failed" else "succeeded",
-                "provider_status": "FAILED" if self.behavior == "failed" else "SUCCEEDED",
-                "progress": 0.0 if self.behavior == "failed" else 1.0,
-                "created_ms": None,
-                "updated_ms": None,
-                "cover": None,
-            }],
-        }
-
     def download_assets(self, task_id, directory, *, status=None):
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
@@ -217,20 +145,24 @@ class MockWorldProvider:
 class GenerationJobStore:
     def __init__(self, root: Path, provider=None, *, lab_root=None):
         self.dir = Path(root)
-        self.dir.mkdir(parents=True, exist_ok=True)
         self.path = self.dir / "generation_jobs.json"
         self.provider = provider or WorldProvider()
         self.lab_root = Path(lab_root) if lab_root else self.dir / "registered"
         self._lock = threading.RLock()
         self._active = set()
         self._jobs = {j["id"]: j for j in json.loads(self.path.read_text(encoding="utf-8"))} if self.path.is_file() else {}
-        for j in self._jobs.values():
-            if j["state"] == "submitting":
+        interrupted = [j for j in self._jobs.values() if j["state"] == "submitting"]
+        if interrupted:
+            for j in interrupted:
                 j.update(state="interrupted", error="Submit interrupted; check remote history before creating another task")
-        self._save()
+            try:
+                self._save()
+            except OSError as exc:
+                logging.getLogger(__name__).warning("Generation state recovery not saved (%s): %s", self.path, exc)
 
     def _save(self):
         with self._lock:
+            self.dir.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
             tmp.write_text(json.dumps(list(self._jobs.values()), ensure_ascii=False, indent=1), encoding="utf-8")
             tmp.replace(self.path)
@@ -247,24 +179,6 @@ class GenerationJobStore:
     def get(self, jid):
         with self._lock:
             return copy.deepcopy(self._jobs.get(jid))
-
-    def find_by_request(self, client_request_id: str | None):
-        with self._lock:
-            return copy.deepcopy(self._find_by_request_locked(client_request_id))
-
-    def _find_by_request_locked(self, client_request_id: str | None):
-        if not client_request_id:
-            return None
-        for j in self._jobs.values():
-            if j.get("params", {}).get("client_request_id") == client_request_id:
-                return j
-        return None
-
-    @staticmethod
-    def _binding_signature(kind: str, params: dict):
-        keys = ("prompt", "ref_image", "inputs", "spec_id", "spec_revision",
-                "spec_hash", "request_hash", "project_id", "config_version")
-        return {"kind": kind, **{k: params.get(k) for k in keys if params.get(k) is not None}}
 
     def submit(self, kind, params, *, background=False):
         if kind not in {"generation", "reconstruction"}:
@@ -284,18 +198,10 @@ class GenerationJobStore:
                 raise ValueError("Resources require an HTTPS URL and image/video/insv type")
             if all(r["type"] == "image" for r in inputs) and len(inputs) < 20:
                 raise ValueError("Image reconstruction requires at least 20 images")
-        crid = params.get("client_request_id")
+        jid = uuid.uuid4().hex[:12]
+        job = {"id": jid, "kind": kind, "params": copy.deepcopy(params), "state": "submitting",
+               "remote_id": None, "created": _now(), "error": None}
         with self._lock:
-            existing = self._find_by_request_locked(crid)
-            if existing is not None:
-                if self._binding_signature(kind, params) != self._binding_signature(
-                    existing["kind"], existing.get("params", {})
-                ):
-                    raise ValueError(f"client_request_id {crid!r} already bound to a different payload")
-                return copy.deepcopy(existing)
-            jid = uuid.uuid4().hex[:12]
-            job = {"id": jid, "kind": kind, "params": copy.deepcopy(params), "state": "submitting",
-                   "remote_id": None, "created": _now(), "error": None}
             self._jobs[jid] = job
             self._save()  # persist intent BEFORE remote submit (no duplicate on retry)
         if background:
@@ -322,62 +228,6 @@ class GenerationJobStore:
         except Exception as exc:
             job.update(state="failed", error=str(exc))
         self._commit(job)
-
-    def attach_remote(self, jid: str, remote_id: str, *, provider: str | None = None) -> dict:
-        """Attach a recovered remote_id onto an interrupted/unconfigured World job without resubmitting."""
-        rid = valid_id(str(remote_id or "").strip())
-        with self._lock:
-            job = self._jobs.get(jid)
-            if job is None:
-                raise KeyError(jid)
-            if provider is not None and provider != "aholo_world":
-                raise ValueError(f"provider mismatch: world job expects aholo_world, got {provider}")
-            if jid in self._active:
-                raise ValueError("cannot attach remote_id while job is actively running")
-            if job.get("remote_id"):
-                if job["remote_id"] == rid:
-                    return copy.deepcopy(job)
-                raise ValueError(f"job {jid} already bound to remote_id {job['remote_id']}")
-            if job["state"] not in {"interrupted", "submit_unknown", "unconfigured", "retryable_error"}:
-                raise ValueError(f"cannot attach remote_id in state {job['state']!r}")
-            for other in self._jobs.values():
-                if other["id"] != jid and other.get("remote_id") == rid:
-                    raise ValueError(f"remote_id {rid!r} already belongs to job {other['id']}")
-            should_verify = self.provider.configured()
-
-        if should_verify:
-            try:
-                st = self.provider.get_status(rid)
-            except Exception as exc:
-                raise ValueError(f"remote task {rid!r} verification failed: {exc}") from exc
-            if not isinstance(st, dict) or st.get("remote_id") not in (None, rid):
-                raise ValueError(f"remote task {rid!r} response mismatch")
-
-        with self._lock:
-            job = self._jobs.get(jid)
-            if job is None:
-                raise KeyError(jid)
-            if jid in self._active:
-                raise ValueError("cannot attach remote_id while job is actively running")
-            if job.get("remote_id"):
-                if job["remote_id"] == rid:
-                    return copy.deepcopy(job)
-                raise ValueError(f"job {jid} already bound to remote_id {job['remote_id']}")
-            if job["state"] not in {"interrupted", "submit_unknown", "unconfigured", "retryable_error"}:
-                raise ValueError(f"cannot attach remote_id in state {job['state']!r}")
-            for other in self._jobs.values():
-                if other["id"] != jid and other.get("remote_id") == rid:
-                    raise ValueError(f"remote_id {rid!r} already belongs to job {other['id']}")
-            prev_state = job["state"]
-            job.setdefault("audit", []).append({
-                "event": "attach_remote", "remote_id": rid, "prev_state": prev_state, "ts": _now(),
-            })
-            job["remote_id"] = rid
-            job.setdefault("params", {})["remote_id"] = rid
-            job["state"] = "remote_processing"
-            job["error"] = None
-            self._commit(job)
-            return copy.deepcopy(job)
 
     def poll(self, jid, *, background=False):
         with self._lock:

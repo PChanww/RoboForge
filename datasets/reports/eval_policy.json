@@ -1,5 +1,5 @@
 {
- "model": "C:\\Users\\31295\\Documents\\Codex\\2026-11-09\\https-www-aholo3d-cn-hackathon-utm\\outputs\\vla-lab\\datasets\\models\\bc_state_mlp.npz",
+ "model": "C:\\Users\\YunQi\\Desktop\\RoboForge\\RoboForge-main\\datasets\\models\\bc_state_mlp.npz",
  "policy": "behavior-cloning MLP (state->4D cartesian), not a VLA",
  "groups": {
   "in_distribution": {
@@ -70,7 +70,7 @@
      "asset": "tall",
      "seed": 30,
      "success": true,
-     "tick": 135,
+     "tick": 128,
      "lifted": true,
      "grasped": true
     },

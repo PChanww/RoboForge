@@ -30,7 +30,6 @@ class Session:
         self.env = self._executor.submit(PlatformEnv, config, lab_root, robot_id, controller_id).result()
         self.env.session_id = self.id
         self.epoch = self.env.epoch
-        self._policy_runners = {}
 
     def submit(self, fn, *args, **kwargs):
         return self._executor.submit(fn, *args, **kwargs).result()
@@ -39,8 +38,6 @@ class Session:
         def _run():
             obs = self.env.reset(seed)
             self.epoch = self.env.epoch  # env owns epoch; session mirrors it
-            for runner in self._policy_runners.values():
-                runner.reset()
             return {"observation": obs, "epoch": self.epoch}
         return self.submit(_run)
 
@@ -75,53 +72,10 @@ class Session:
             return {"observation": obs, "executed": executed}
         return self.submit(_run)
 
-    def expert(self, token, epoch=None, steps: int = 1):
-        n = max(1, min(int(steps or 1), 50))
+    def expert(self, token, epoch=None):
         def _run():
             self._guard(token, None, epoch)
-            obs = None
-            for _ in range(n):
-                obs = self.env.step(self.env.servo_expert_action())
-                if self.env.metrics().get("success"):
-                    break
-            return {**obs, "metrics": self.env.metrics()}
-        return self.submit(_run)
-
-    def policy(self, token, model_id: str = "hackathon_vla_bc", epoch=None, steps: int = 1,
-               instruction: str | None = None):
-        n = max(1, min(int(steps or 1), 50))
-        def _run():
-            self._guard(token, None, epoch)
-            runner = self._policy_runners.get(model_id)
-            if runner is None:
-                smolvla_stats = self.env.lab_root / "datasets" / "models" / model_id / "so100_stats.json"
-                if smolvla_stats.is_file():
-                    import json as _json
-                    st = _json.loads(smolvla_stats.read_text(encoding="utf-8"))
-                    obs0 = self.env.observation()
-                    imgs0 = obs0.get("images") or {}
-                    for cam in (st.get("camera_keys") or ["front", "wrist"]):
-                        frame = imgs0.get(cam)
-                        if not frame or not frame.get("jpeg_b64"):
-                            raise ValueError(f"Camera {cam!r} frame unavailable for SmolVLA")
-                    from .smolvla_infer import SmolVLAPolicyRunner
-                    runner = SmolVLAPolicyRunner(self.env.lab_root, model_id, shared=True)
-                else:
-                    from .visual_infer import VisualPolicyRunner
-                    runner = VisualPolicyRunner(self.env.lab_root, model_id)
-                self._policy_runners[model_id] = runner
-            if self.env.scheduler.tick == 0:
-                self.env.select_target_for_instruction(instruction)
-                runner.reset()
-            obs = None
-            last_action = None
-            for _ in range(n):
-                action = runner.act(self.env.observation(), instruction=instruction)
-                last_action = action
-                obs = self.env.step(action)
-                if self.env.metrics().get("success"):
-                    break
-            return {**obs, "metrics": self.env.metrics(), "policy_model": model_id, "last_action": last_action}
+            return self.env.step(self.env.servo_expert_action())
         return self.submit(_run)
 
     def acquire(self, owner: str) -> str:
@@ -150,9 +104,6 @@ class Session:
             return self._owner
 
     def close(self):
-        for runner in self._policy_runners.values():
-            if hasattr(runner, "close"):
-                runner.close()
         self._executor.submit(self.env.close).result()
         self._executor.shutdown(wait=True)
 
@@ -192,5 +143,3 @@ class SessionManager:
             self._sessions.clear()
         for s in sessions:
             s.close()
-        from .smolvla_infer import close_all_smolvla_workers
-        close_all_smolvla_workers()

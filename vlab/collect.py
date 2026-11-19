@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -33,6 +34,8 @@ class EpisodeRecorder:
         self.joint_pos, self.joint_vel, self.eef_pos, self.eef_mat = [], [], [], []
         self.gripper, self.action, self.frame_time = [], [], []
         self.object_xyz = []
+        self.object_mat = []
+        self.task_state = []
         self.capture_time = {c: [] for c in self.cameras}
         self.age = {c: [] for c in self.cameras}
         self.images = {c: [] for c in self.cameras}
@@ -46,6 +49,10 @@ class EpisodeRecorder:
         self.eef_mat.append([v for row in st["eef_matrix"] for v in row])
         self.gripper.append(st["gripper"] if st["gripper"] is not None else 0.0)
         self.object_xyz.append(st["object_pose"]["position"])
+        self.object_mat.append(st["object_pose"]["matrix"])
+        if self.env._duck_task is not None:
+            task = self.env._duck_task
+            self.task_state.append([task.speed, task.distance, task.phase, self.env._judge.contacts])
         self.action.append(None)  # paired with the next action applied at this state
         self.frame_time.append(obs["sim_time"])
         for c in self.cameras:
@@ -70,6 +77,12 @@ class EpisodeRecorder:
             "eef_mat": np.asarray(self.eef_mat, dtype=np.float32),
             "gripper": np.asarray(self.gripper, dtype=np.float32),
             "object_xyz": np.asarray(self.object_xyz, dtype=np.float32),
+            "object_mat": np.asarray(self.object_mat, dtype=np.float32),
+            **({"belt_speed_m_s": np.asarray(self.task_state, dtype=np.float32)[:, 0],
+                "belt_travel_m": np.asarray(self.task_state, dtype=np.float32)[:, 1],
+                "task_phase": np.asarray(self.task_state, dtype=np.int32)[:, 2],
+                "grasp_contacts": np.asarray(self.task_state, dtype=np.int32)[:, 3]}
+               if self.task_state else {}),
             "action": np.asarray(self.action, dtype=np.float32),
             "frame_time": np.asarray(self.frame_time, dtype=np.float32),
             "success": np.asarray([success], dtype=bool),
@@ -111,11 +124,17 @@ def _task_asset_provenance(config: ProjectConfig, lab_root: Path) -> dict:
             })
     else:
         info["builtin"] = True
+    if config.task.plugin == "duck_conveyor":
+        info["imported_default_collision_proxy"] = info.get("collision_proxy")
+        info["collision_proxy"] = {
+            "shape": "generated_mesh_convex_hull", "mass_kg": info.get("mass_kg"),
+            "basis": "generated mesh outer envelope; mass/friction are uncalibrated",
+        }
     return info
 
 
 def collect(config: ProjectConfig, lab_root: Path, plan: list[dict], out_dir: Path, max_ticks=200,
-            expert="servo", provenance=None):
+            expert="servo", provenance=None, preview_dir: Path | None = None, realtime=False):
     """plan: [{'asset': ..., 'seed': ...}]. expert: 'servo' (closed-loop) or 'openloop'."""
     source = "closed_loop_servo_expert" if expert == "servo" else "script_expert"
     act_fn = (lambda e: e.servo_expert_action()) if expert == "servo" else (lambda e: e.expert_action())
@@ -126,20 +145,32 @@ def collect(config: ProjectConfig, lab_root: Path, plan: list[dict], out_dir: Pa
     env = PlatformEnv(config, lab_root)
     try:
         rows = []
+        def publish_preview(index):
+            if preview_dir is None:
+                return
+            preview_root = Path(preview_dir)
+            preview_root.mkdir(parents=True, exist_ok=True)
+            obs = env.observation()
+            snapshot = {"episode_index": index, "total": len(plan),
+                        "tick": obs["tick"], "sim_time": obs["sim_time"],
+                        "images": {key: frame["jpeg_b64"] if frame else None
+                                   for key, frame in obs["images"].items()},
+                        "stage": env.expert_stage(), "state": obs["state"],
+                        "completed": list(rows), "metrics": env.metrics()}
+            pending = preview_root / "preview.tmp"
+            pending.write_text(json.dumps(snapshot), encoding="utf-8")
+            try:
+                pending.replace(preview_root / "preview.json")
+            except PermissionError:
+                # Windows may briefly hold the previous snapshot open in the API.
+                # A skipped preview must never interrupt recording training data.
+                pass
+
         for i, item in enumerate(plan):
-            base_cfg = item.get("config") or config
-            cfg = base_cfg.model_copy(deep=True)
+            cfg = config.model_copy(deep=True)
             cfg.task.asset = item["asset"]
-            instruction = (item.get("instruction") or base_cfg.task.instruction or "").strip()
-            if instruction:
-                cfg.task.instruction = instruction
             env.config = cfg
             env.reset(item["seed"])
-            if item.get("object_xy"):
-                for tgt_k, xy_val in item["object_xy"].items():
-                    env.set_object_xy(tgt_k, xy_val)
-            if item.get("active_target"):
-                env.set_active_target(item["active_target"])
             # Preroll the existing Cartesian expert with an open gripper until
             # configured sensor latency has made the first frames observable.
             warmup = int(np.ceil(max((s.latency_s for s in cfg.sensors), default=0) * env.controller.frequency_hz)) + 2
@@ -152,25 +183,34 @@ def collect(config: ProjectConfig, lab_root: Path, plan: list[dict], out_dir: Pa
             start_tick = env.scheduler.tick
             rec = EpisodeRecorder(env)
             rec.capture()  # initial state S0
+            publish_preview(i)
+            wall_start, sim_start = time.monotonic(), env.episode_time()
             success = False
-            while env.scheduler.tick < start_tick + max_ticks:
+            episode_ticks = (max(max_ticks, int(np.ceil(cfg.task.time_limit_s * env.controller.frequency_hz)))
+                             if cfg.task.plugin == "duck_conveyor" else max_ticks)
+            while env.scheduler.tick < start_tick + episode_ticks:
                 action = act_fn(env)
                 rec.set_action(action)  # pair S_t with the action taken at S_t
                 env.step(action)
+                if realtime:
+                    delay = env.episode_time() - sim_start - (time.monotonic() - wall_start)
+                    if delay > 0:
+                        time.sleep(delay)
+                publish_preview(i)
                 if env.metrics()["success"]:
                     success = True
                     break
-                if env.scheduler.tick < start_tick + max_ticks:
+                if env.scheduler.tick < start_tick + episode_ticks:
                     rec.capture()  # next state S_{t+1}
             arrays = rec.arrays(success, item["asset"], env.seed, source)
             np.savez_compressed(out_dir / "episodes" / f"ep{i:03d}.npz", **arrays)
             row = {"index": i, "asset": item["asset"], "seed": env.seed, "frames": len(rec.frame_time),
                    "success": bool(success), "duration_s": float(rec.frame_time[-1]),
-                   "instruction": instruction,
-                   "active_target": item.get("active_target") or "cup",
-                   "scene_tag": item.get("scene_tag") or cfg.project_id,
                    "control_source": source}
+            if cfg.task.plugin == "duck_conveyor":
+                row["task_metrics"] = env.metrics()
             rows.append(row)
+            publish_preview(i)
             print(i, row, flush=True)
         manifest = {
             "schema_version": "1.0",
@@ -180,11 +220,13 @@ def collect(config: ProjectConfig, lab_root: Path, plan: list[dict], out_dir: Pa
             "render_mode": env.render_mode,
             "sensor_renderer": config.scene.sensor_renderer,
             "renderer_version": _renderer_version(env),
+            "scene_props": env._env_info.get("props", []),
             "robot": config.robots[0].id,
             "joints": [n for n in env._joints],
             "cameras": [s.id for s in config.sensors],
             "task_asset": _task_asset_provenance(config, lab_root),
             "control_source": f"{source} (privileged object pose; not a learned policy)",
+            "expert_version": ("duck_conveyor_tracking_v2" if config.task.plugin == "duck_conveyor" else "push_smooth_v1" if config.task.plugin == "tabletop_push" else "servo_smooth_v1") if expert == "servo" else "openloop_v1",
             "episodes": rows,
             "summary": {"episodes": len(rows), "successes": sum(r["success"] for r in rows),
                         "frames": sum(r["frames"] for r in rows)},
@@ -200,6 +242,18 @@ def collect(config: ProjectConfig, lab_root: Path, plan: list[dict], out_dir: Pa
                 lab_root, scene.asset_id, scene.revision, physics=not hybrid)[1]
         if provenance:
             manifest["generation_provenance"] = provenance
+        if config.task.plugin == "duck_conveyor":
+            from .duck_demo import asset_info
+            has_chassis = any(l.name == "mobile_chassis" for l in env.robot.links)
+            manifest["robot_chassis_asset"] = asset_info(Path(lab_root), config.task.duck_conveyor.chassis_asset, "四轮底盘") if has_chassis else None
+            manifest["task_physics"] = {
+                "object_collision": "convex hull of generated mesh; mass/friction not calibrated",
+                "conveyor_contact": "driven rollers, visual slats",
+                "base_motion": "parked" if has_chassis else "fixed_arm", "expert_observations": "privileged object pose",
+                "object_mat": "world rotation matrix (N,3,3)",
+                "task_phase": "0 feed,1 track,2 follow approach,3 follow descend,4 follow grip,5 lift,6 carry,7 lower,8 release,9 retreat,10 failed grasp",
+                "continuous_conveyor": config.task.duck_conveyor.continuous,
+            }
         (out_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
         print(json.dumps(manifest["summary"]))
         return manifest

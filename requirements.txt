@@ -8,5 +8,6 @@ uvicorn==0.54.0
 pydantic==2.14.3
 gymnasium==1.4.0
 websockets==17.4
+python-dotenv==1.2.4
 # Test client
 httpx==0.28.1

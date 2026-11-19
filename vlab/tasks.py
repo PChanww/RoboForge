@@ -10,10 +10,15 @@ import sim_env
 from .schema import TaskConfig
 
 TRAY_HALF = [.074, .069]
+PRIMITIVES = {"block": (.026, .052, .085, ".83 .28 .19"),
+              "cylinder": (.026, .072, .09, ".22 .45 .83")}
 
 
 def asset_params(asset, lab_root=None):
     """Resolve builtin names, 'imported/<name>' ids, or a manifest path."""
+    if asset in PRIMITIVES:
+        r, h, mass, color = PRIMITIVES[asset]
+        return r, h, mass, color, sim_env._cup_mesh(r, h), 0., ""
     if asset in sim_env.BUILTINS:
         return sim_env._load_asset(asset)
     path = Path(asset)
@@ -24,38 +29,35 @@ def asset_params(asset, lab_root=None):
     return sim_env._load_asset(path)
 
 
-def _tray_half(task: TaskConfig) -> list[float]:
-    he = getattr(task, "goal_half_extents", None)
-    if he and len(he) == 2:
-        return [float(he[0]), float(he[1])]
-    return list(TRAY_HALF)
-
-
-def task_xml(task: TaskConfig, radius, height, mass, color, offset, handle, spawn, *, support_z: float = 0.0):
+def task_xml(task: TaskConfig, radius, height, mass, color, offset, handle, spawn):
     """Task objects only (tray + dynamic cup). Environment comes from scene_builder."""
     gx, gy = task.goal_xy
     gs = task.goal_surface_m
-    hx, hy = _tray_half(task)
-    tray_xml = ""
-    if getattr(task, "show_builtin_tray", True):
-        thickness = max(0.004, gs - float(support_z))
-        tray_cz = float(support_z) + thickness / 2.0
-        lip_z = gs + 0.002
-        lx = max(0.002, hx - 0.001)
-        ly = max(0.002, hy - 0.001)
-        tray_xml = f"""
-        <geom name="tray" type="box" pos="{gx} {gy} {tray_cz}" size="{hx} {hy} {thickness/2}" rgba=".63 .69 .65 1"/>
-        <geom type="box" pos="{gx - lx} {gy} {lip_z}" size=".002 {hy} .004" rgba=".63 .69 .65 1"/>
-        <geom type="box" pos="{gx + lx} {gy} {lip_z}" size=".002 {hy} .004" rgba=".63 .69 .65 1"/>
-        <geom type="box" pos="{gx} {gy - ly} {lip_z}" size="{lx} .002 .004" rgba=".63 .69 .65 1"/>
-        <geom type="box" pos="{gx} {gy + ly} {lip_z}" size="{lx} .002 .004" rgba=".63 .69 .65 1"/>"""
-    cup_z = float(support_z) + height / 2 + .001
-    return f"""{tray_xml}
-        <body name="cup" pos="{spawn[0]} {spawn[1]} {cup_z}">
+    if task.object_color_rgb is not None:
+        color = " ".join(str(v) for v in task.object_color_rgb)
+        # Builtin cup handles share the object's original material.
+        import re
+        handle = re.sub(r'rgba="[^"]+"', f'rgba="{color} 1"', handle)
+    shape = "box" if task.asset == "block" else "cylinder"
+    size = f"{radius} {radius} {height/2}" if shape == "box" else f"{radius} {height/2}"
+    visual = (f'<geom class="visual" type="{shape}" size="{size}" rgba="{color} 1"/>'
+              if task.asset in PRIMITIVES else
+              f'<geom class="visual" type="mesh" mesh="cup_mesh" pos="0 0 {offset}" rgba="{color} 1"/>')
+    tray = f"""
+        <geom name="tray" type="box" pos="{gx} {gy} {gs/2}" size="{TRAY_HALF[0]} {TRAY_HALF[1]} {gs/2}" rgba=".63 .69 .65 1"/>
+        <geom type="box" pos="{gx-.073} {gy} .011" size=".002 .069 .004" rgba=".63 .69 .65 1"/>
+        <geom type="box" pos="{gx+.073} {gy} .011" size=".002 .069 .004" rgba=".63 .69 .65 1"/>
+        <geom type="box" pos="{gx} {gy-.068} .011" size=".073 .002 .004" rgba=".63 .69 .65 1"/>
+        <geom type="box" pos="{gx} {gy+.068} .011" size=".073 .002 .004" rgba=".63 .69 .65 1"/>
+        """
+    if task.plugin == "tabletop_push":
+        tray = f'<geom name="tray" type="box" pos="{gx} {gy} .0003" size=".045 .055 .0003" rgba=".35 .72 .52 .35" contype="0" conaffinity="0"/>'
+    return tray + f"""
+        <body name="cup" pos="{spawn[0]} {spawn[1]} {height/2+.001}">
           <freejoint name="cup_free"/>
-          <geom name="cup_contact" type="cylinder" size="{radius} {height/2}" mass="{mass}"
+          <geom name="cup_contact" type="{shape}" size="{size}" mass="{mass}"
                 group="3" rgba=".2 .5 .6 0" friction="1.8 .005 .0001"/>
-          <geom class="visual" type="mesh" mesh="cup_mesh" pos="0 0 {offset}" rgba="{color} 1"/>
+          {visual}
           {handle}
         </body>"""
 
@@ -68,44 +70,12 @@ def spawn_xy(task: TaskConfig, seed):
 class Judge:
     """Contact-based success: bilateral grasp, lift, upright rest in tray after release."""
 
-    def __init__(
-        self,
-        model,
-        data,
-        task: TaskConfig,
-        radius,
-        height,
-        *,
-        body_name: str = "cup",
-        geom_prefix: str = "cup_contact",
-        freejoint_name: str = "cup_free",
-    ):
+    def __init__(self, model, data, task: TaskConfig, radius, height):
         self.model, self.data, self.task = model, data, task
         self.radius, self.height = radius, height
-        self.body_name = body_name
-        self.cup = model.body(body_name).id
-        self.cup_geoms = {
-            gid for gid in range(model.ngeom)
-            if (model.geom(gid).name == geom_prefix or model.geom(gid).name.startswith(f"{geom_prefix}_"))
-        }
-        if not self.cup_geoms:
-            self.cup_geoms = {
-                gid for gid in range(model.ngeom)
-                if int(model.geom_bodyid[gid]) == self.cup and int(model.geom_group[gid]) != 2
-            }
-        self.cup_geom = sorted(self.cup_geoms)[0]
-        tray_name = getattr(task, "goal_tray_collider_ref", None) or "tray"
-        base_prefix = tray_name[:-7] if tray_name.endswith("_part_0") else tray_name
-        matched = [
-            gid for gid in range(model.ngeom)
-            if (model.geom(gid).name == tray_name or model.geom(gid).name.startswith(f"{base_prefix}_part_"))
-        ]
-        if not matched:
-            raise ValueError(f"goal tray collider geom {tray_name!r} not found in MuJoCo scene")
-        self.tray_geoms = set(matched)
-        self.tray_geom = matched[0]
-        self.tray_half = _tray_half(task)
-        self.cup_dofadr = int(model.joint(freejoint_name).dofadr[0])
+        self.cup = model.body("cup").id
+        self.cup_geom = model.geom("cup_contact").id
+        self.tray_geom = model.geom("tray").id
         self.pads = {model.geom(n).id for n in ("left_pad", "right_pad")}
         self.start_xyz = data.xpos[self.cup].copy()
         self.reset()
@@ -120,9 +90,9 @@ class Judge:
         touching, on_tray = set(), False
         for c in self.data.contact:
             a, b = int(c.geom1), int(c.geom2)
-            if a in self.cup_geoms or b in self.cup_geoms:
+            if self.cup_geom in (a, b):
                 touching.update(self.pads.intersection((a, b)))
-                on_tray |= (a in self.tray_geoms or b in self.tray_geoms)
+                on_tray |= self.tray_geom in (a, b)
         return len(touching), on_tray
 
     def update(self, grip_target, open_m):
@@ -130,19 +100,22 @@ class Judge:
         contacts, self.tray_contact = self._contacts()
         self.contacts = contacts
         self.touched |= contacts > 0
-        self.grasped |= contacts == 2
+        self.grasped |= contacts == 2 and self.task.plugin != "tabletop_push"
         self.lifted |= contacts == 2 and cup[2] > self.start_xyz[2] + self.task.lift_threshold_m
         gx, gy = self.task.goal_xy
-        hx, hy = self.tray_half
-        in_tray = np.all(np.abs(cup[:2] - [gx, gy]) + self.radius < [hx - .003, hy - .003])
+        in_tray = np.all(np.abs(cup[:2] - [gx, gy]) + self.radius < [TRAY_HALF[0] - .003, TRAY_HALF[1] - .003])
         upright = self.data.xmat[self.cup, 8] > .93
-        v_lin = self.data.qvel[self.cup_dofadr : self.cup_dofadr + 3]
-        v_ang = self.data.qvel[self.cup_dofadr + 3 : self.cup_dofadr + 6]
-        rest_offset = self.height / 2 if self.body_name == "cup" else 0.0
-        resting = (abs(cup[2] - rest_offset - self.task.goal_surface_m) < .006
-                   and np.linalg.norm(v_lin) < .018
-                   and np.linalg.norm(v_ang) < .30)
+        resting = (abs(cup[2] - self.height / 2 - self.task.goal_surface_m) < .006
+                   and np.linalg.norm(self.data.qvel[-6:-3]) < .018
+                   and np.linalg.norm(self.data.qvel[-3:]) < .30)
         released = contacts == 0 and grip_target > open_m - .009
+        if self.task.plugin == "tabletop_push":
+            at_goal = np.linalg.norm(cup[:2] - [gx, gy]) < .022
+            moved = np.linalg.norm(cup[:2] - self.start_xyz[:2]) > .05
+            self.stable_ticks = (self.stable_ticks + 1 if self.touched and moved and at_goal
+                                 and upright and resting and contacts == 0 else 0)
+            self.success |= self.stable_ticks >= self.task.stable_ticks
+            return
         self.stable_ticks = (self.stable_ticks + 1 if self.lifted and self.tray_contact
                              and in_tray and upright and resting and released else 0)
         self.success |= self.stable_ticks >= self.task.stable_ticks

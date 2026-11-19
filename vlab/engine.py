@@ -96,21 +96,22 @@ class PlatformEnv:
             self._hybrid_ply = ply
         body, actuators, mesh_names, world_cams = robot_xml(self.robot, cfg.sensors)
         env_xml, env_assets, self._env_info = scene_builder.environment_xml(cfg, self.lab_root)
-        task_scene = tasks.task_xml(cfg.task, r, h, mass, color, offset, handle, spawn, support_z=cfg.scene.work_surface_z)
+        if cfg.task.plugin == "duck_conveyor":
+            from .duck_conveyor import scene_xml, ROLLERS
+            task_scene = scene_xml(cfg.task, offset, color, spawn, seed, mesh, mass)
+            actuators += "".join(f'<velocity name="belt_drive_{i}" joint="roller_joint_{i}" kv=".3" forcerange="-1 1"/>' for i in range(ROLLERS))
+        else:
+            task_scene = tasks.task_xml(cfg.task, r, h, mass, color, offset, handle, spawn)
         mesh_assets = mesh_files(cfg, self.robot, mesh_names, self.lab_root)
         mesh_assets.update(env_assets)
         mesh_assets["cup.obj"] = mesh
-        mesh_scales = self._env_info.get("mesh_scales", {})
         def _decl(n):
             if n == "scene_env.obj" and cfg.scene.environment:
                 s = cfg.scene.environment.uniform_scale
-                return f'<mesh name="scene_env" file="{n}" scale="{s:.6g} {s:.6g} {s:.6g}" inertia="shell"/>'
-            if n in mesh_scales:
-                s = mesh_scales[n]
-                return f'<mesh name="{n[:-4]}" file="{n}" scale="{s:.6g} {s:.6g} {s:.6g}" inertia="shell"/>'
-            return f'<mesh name="{n[:-4]}" file="{n}" inertia="shell"/>'
+                return f'<mesh name="scene_env" file="{n}" scale="{s:.6g} {s:.6g} {s:.6g}"/>'
+            return f'<mesh name="{n[:-4]}" file="{n}"/>'
         mesh_decls = "".join(_decl(n) for n in mesh_assets if n != "cup.obj")
-        mesh_decls += '<mesh name="cup_mesh" file="cup.obj" inertia="shell"/>'
+        mesh_decls += '<mesh name="cup_mesh" file="cup.obj"/>'
         dt = cfg.scene.physics_dt
         grav = " ".join(str(v) for v in cfg.scene.gravity)
         xml = f"""
@@ -140,6 +141,7 @@ class PlatformEnv:
         seed = self.config.scene.seed if seed is None else int(seed)
         self.epoch = getattr(self, "epoch", 0) + 1  # before initial capture
         self.close()
+        self._duck_task = None
         self.model = self._build(seed)
         self.data = mujoco.MjData(self.model)
         self.seed = seed
@@ -155,7 +157,13 @@ class PlatformEnv:
         self._last_action = [0.0] * self.controller.action_dim
         self._servo_phase = 0
         self._servo_dwell = 0
+        self._servo_velocity = np.zeros(3)
+        self._servo_grip = self._open
+        self._servo_hold_width = None
+        self._push_phase = 0
         self._ik_error = None
+        self._constraint = None
+        self._reach_limited = 0
         self._render_error = None
         if not hasattr(self, "_hybrid"):
             self._hybrid = None  # world-fixed gaussian background: cached across resets
@@ -172,96 +180,26 @@ class PlatformEnv:
         if g:
             self.data.qpos[self._qposadr[g.left_joint]] = self._open
             self.data.qpos[self._qposadr[g.right_joint]] = self._open
-        self.data.ctrl[:] = [self.data.qpos[self._qposadr[n]] for n in self._joints]
+        for n in self._joints:
+            self.data.ctrl[self._ctrl_index[n]] = self.data.qpos[self._qposadr[n]]
+        if self.config.task.plugin == "duck_conveyor":
+            from .duck_conveyor import DuckTask
+            self._duck_task = DuckTask(self)
         mujoco.mj_forward(self.model, self.data)
         mujoco.mj_step(self.model, self.data, nstep=80)
         self._t0 = self.data.time
         fps = {s.id: s.fps for s in self.config.sensors}
         self.scheduler = Scheduler(self.config.scene.physics_dt, self.controller.frequency_hz, fps)
         self._latency = {s.id: s.latency_s for s in self.config.sensors}
-        self._active_target = "cup"
-        self._active_radius = self._asset_radius
-        self._active_height = self._asset_height
-        self._judge = tasks.Judge(self.model, self.data, self.config.task, self._asset_radius, self._asset_height)
+        if self._duck_task is not None:
+            from .duck_conveyor import DuckJudge
+            self._judge = DuckJudge(self.model, self.data, self.config.task, self._asset_radius, self._asset_height)
+        else:
+            self._judge = tasks.Judge(self.model, self.data, self.config.task, self._asset_radius, self._asset_height)
         self._buffers = {s.id: CameraBuffer() for s in self.config.sensors}
         self._capture_all(0.0)
         self._sample_state(0.0)
         return self.observation()
-
-    def set_active_target(self, target_id: str = "cup") -> dict:
-        """Switch the active grasp target & Judge between 'cup' and a dynamic asset_node."""
-        tid = (target_id or "cup").strip()
-        if tid == "cup":
-            self._active_target = "cup"
-            self._active_radius = float(self._asset_radius)
-            self._active_height = float(self._asset_height)
-            self._judge = tasks.Judge(self.model, self.data, self.config.task, self._active_radius, self._active_height)
-        else:
-            dyn = (self._state or {}).get("dynamic_objects") or {}
-            if tid not in dyn:
-                raise ValueError(f"Unknown dynamic target {tid!r}; available: {['cup', *sorted(dyn)]}")
-            cols = dyn[tid].get("colliders") or []
-            if cols:
-                sx, sy, sz = cols[0].get("size_m") or [0.036, 0.036, 0.036]
-                r = 0.5 * float(max(sx, sy))
-                h = float(sz)
-            else:
-                r, h = 0.018, 0.036
-            self._active_target = tid
-            self._active_radius = r
-            self._active_height = h
-            self._judge = tasks.Judge(
-                self.model,
-                self.data,
-                self.config.task,
-                r,
-                h,
-                body_name=f"node_{tid}",
-                geom_prefix=f"node_{tid}_col",
-                freejoint_name=f"node_{tid}_free",
-            )
-        self._servo_phase = 0
-        self._servo_dwell = 0
-        return self.metrics()
-
-    def set_object_xy(self, target_id: str, xy: list[float] | tuple[float, float]) -> None:
-        """Reposition a freejoint object cleanly onto the work surface before episode rollout."""
-        ws_z = float(self.config.scene.work_surface_z)
-        if target_id == "cup":
-            jname = "cup_free"
-            z = ws_z + float(self._asset_height) / 2.0 + 0.001
-        else:
-            jname = f"node_{target_id}_free"
-            # node_companion_cube mesh origin sits at bottom z=0 (scene_builder offset_z=0)
-            z = ws_z + 0.001
-        qadr = int(self.model.joint(jname).qposadr[0])
-        self.data.qpos[qadr : qadr + 3] = [float(xy[0]), float(xy[1]), float(z)]
-        self.data.qpos[qadr + 3 : qadr + 7] = [1.0, 0.0, 0.0, 0.0]
-        dadr = int(self.model.joint(jname).dofadr[0])
-        self.data.qvel[dadr : dadr + 6] = 0.0
-        mujoco.mj_forward(self.model, self.data)
-        mujoco.mj_step(self.model, self.data, nstep=25)
-        self._t0 = self.data.time
-        self._judge.start_xyz = self.data.xpos[self._judge.cup].copy()
-        self._judge.reset()
-        self._buffers = {s.id: CameraBuffer() for s in self.config.sensors}
-        self._capture_all(0.0)
-        self._sample_state(0.0)
-
-    def select_target_for_instruction(self, instruction: str | None) -> str:
-        """Auto-select active Judge target matching natural-language instruction when dynamic_objects exist."""
-        dyn = (self._state or {}).get("dynamic_objects") or {}
-        if not dyn or not instruction:
-            return getattr(self, "_active_target", "cup")
-        txt = instruction.strip().lower()
-        desired = None
-        if any(k in txt for k in ("cube", "block", "orange", "companion", "方块", "积木", "木块")):
-            desired = "companion_cube" if "companion_cube" in dyn else sorted(dyn)[0]
-        elif any(k in txt for k in ("cup", "tumbler", "canister", "mug", "杯", "罐")):
-            desired = "cup"
-        if desired and desired != getattr(self, "_active_target", "cup"):
-            self.set_active_target(desired)
-        return getattr(self, "_active_target", "cup")
 
     def episode_time(self):
         return self.data.time - self._t0
@@ -269,6 +207,8 @@ class PlatformEnv:
     def _step_to(self, episode_target):
         target = self._t0 + episode_target
         while self.data.time < target - 1e-9:
+            if self._duck_task is not None:
+                self._duck_task.move_belt(self.config.scene.physics_dt)
             mujoco.mj_step(self.model, self.data)
 
     def _render_camera(self, sensor, width=None, height=None):
@@ -371,44 +311,10 @@ class PlatformEnv:
         cup = self.model.body("cup").id
         object_pose = {"position": self.data.xpos[cup].tolist(),
                        "matrix": self.data.xmat[cup].reshape(3, 3).tolist(),
-                       "visual_offset": [0, 0, self._cup_offset],
-                       "radius_m": float(self._asset_radius),
-                       "height_m": float(self._asset_height)}
-        dynamic_objects = {}
-        cyl_type = int(mujoco.mjtGeom.mjGEOM_CYLINDER)
-        for node in self.config.scene.asset_nodes:
-            if node.role == "dynamic":
-                nbid = self.model.body(f"node_{node.node_id}").id
-                cols = []
-                prefix = f"node_{node.node_id}_col"
-                for gid in range(self.model.ngeom):
-                    if int(self.model.geom_bodyid[gid]) != nbid:
-                        continue
-                    gname = self.model.geom(gid).name or ""
-                    if not gname.startswith(prefix):
-                        continue
-                    gtype = int(self.model.geom_type[gid])
-                    gs = self.model.geom_size[gid]
-                    if gtype == cyl_type:
-                        shape = "cylinder"
-                        size_m = [float(gs[0] * 2), float(gs[0] * 2), float(gs[1] * 2)]
-                    else:
-                        shape = "box"
-                        size_m = [float(gs[0] * 2), float(gs[1] * 2), float(gs[2] * 2)]
-                    cols.append({
-                        "shape": shape,
-                        "size_m": size_m,
-                        "position": self.model.geom_pos[gid].tolist(),
-                    })
-                dynamic_objects[node.node_id] = {
-                    "position": self.data.xpos[nbid].tolist(),
-                    "matrix": self.data.xmat[nbid].reshape(3, 3).tolist(),
-                    "colliders": cols,
-                }
+                       "visual_offset": [0, 0, self._cup_offset]}
         self._state = {"time": round(episode_time, 6), "joint_pos": pos, "joint_vel": vel,
                        "eef_position": eef_pos, "eef_matrix": eef_mat, "gripper": grip,
-                       "body_poses": body_poses, "object_pose": object_pose,
-                       "dynamic_objects": dynamic_objects}
+                       "body_poses": body_poses, "object_pose": object_pose}
 
     # -- action / step ------------------------------------------------------
     def validate_action(self, action):
@@ -423,19 +329,47 @@ class PlatformEnv:
                 raise ValueError(f"action[{i}]={a[i]} outside [{lo},{hi}] ({c.action_names[i]}, {c.units[i]})")
         return a
 
+    def _reach_project(self, point):
+        """Constrain one world-space Cartesian target to the robot's reachable set.
+
+        The controller's workspace box is an axis-aligned Cartesian bound and is
+        not a reach model: a box can contain points far outside the arm's sphere.
+        Robots whose IK frame moves with the body (a wheeled base) must override
+        this, because the same world point changes reachability as the body
+        moves. The base class projects nothing and returns ``(point, None)``.
+        """
+        return point, None
+
     def _apply(self, a):
         c = self.controller
         if c.mode == "cartesian_delta_ik":
-            new_target = np.clip(self._target + c.max_delta_m * a[:3],
-                                 c.workspace_min, c.workspace_max)
+            requested_target = self._target + c.max_delta_m * a[:3]
+            new_target = np.clip(requested_target, c.workspace_min, c.workspace_max)
+            new_target, projected = self._reach_project(new_target)
+            if projected is not None:
+                self._reach_limited += 1
+            # Record what the caller asked for, what the box allowed, and what
+            # the arm can execute. Success judgement never reads this.
+            self._constraint = {
+                "requested_target": [float(v) for v in requested_target],
+                "target": [float(v) for v in new_target],
+                "limited": projected is not None,
+                "detail": projected,
+            }
             self._grip_target = self._closed + (a[3] + 1) * .5 * (self._open - self._closed)
             try:
                 ik = self._ik(new_target)
                 self._target = new_target
                 self._ik_error = None
             except kinematics.Unreachable as exc:
-                self._ik_error = exc.reason  # keep last valid control target
-                ik = self._ik(self._target)
+                # Numeric safety net only: _reach_project already bounds the
+                # target inside the reachable set. Re-projecting the previous
+                # target matters because its reachability depends on the body
+                # pose, which is exactly what made the old fallback re-raise.
+                self._ik_error = exc.reason
+                fallback, _ = self._reach_project(self._target)
+                self._target = fallback
+                ik = self._ik(fallback)
             for name, q in zip(("waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"), ik):
                 self.data.ctrl[self._ctrl_index[name]] = q
             if self.robot.gripper:
@@ -509,7 +443,11 @@ class PlatformEnv:
 
     def metrics(self):
         m = self._judge.metrics(self.scheduler.tick, self.scheduler.control_period)
-        m["active_target"] = getattr(self, "_active_target", "cup")
+        if self._duck_task is not None:
+            m.update(belt_speed_m_s=self._duck_task.speed, belt_travel_m=self._duck_task.distance,
+                     initial_quaternion_wxyz=self._duck_task.initial_quat.tolist(),
+                     settled_quaternion_wxyz=self._judge.start_quat.tolist(),
+                     initial_xyz=self._judge.start_xyz.tolist(), task="duck_conveyor")
         m["terminated"] = bool(m["success"])
         m["truncated"] = self.episode_time() >= self.config.task.time_limit_s
         return m
@@ -520,16 +458,13 @@ class PlatformEnv:
             raise UnsupportedMode("expert baseline requires cartesian_delta_ik")
         source = self._judge.start_xyz
         goal = np.array(self.config.task.goal_xy)
-        ws_z = float(self.config.scene.work_surface_z)
-        hover = min(.176, ws_z + self._asset_height / 2 + .090)
-        grab = ws_z + self._asset_height / 2 + .002
+        hover = min(.176, self._asset_height / 2 + .090)
+        grab = self._asset_height / 2 + .002
         gs = self.config.task.goal_surface_m
-        drop = gs + self._asset_height / 2 + .002
-        hover_goal = min(.176, max(hover, gs + self._asset_height / 2 + .040))
         phases = ((24, source[:2], hover, 1), (44, source[:2], grab, 1),
-                  (60, source[:2], grab, -1), (86, source[:2], hover_goal, -1),
-                  (126, goal, hover_goal, -1), (151, goal, drop, -1),
-                  (165, goal, drop, 1))
+                  (60, source[:2], grab, -1), (86, source[:2], hover, -1),
+                  (126, goal, hover, -1), (151, goal, grab + gs, -1),
+                  (165, goal, grab + gs, 1))
         for end_tick, xy, z, grip in phases:
             if self.scheduler.tick < end_tick:
                 break
@@ -539,24 +474,25 @@ class PlatformEnv:
         return [*delta.tolist(), grip]
 
     def servo_expert_action(self):
-        """Closed-loop position-servo expert: actions are a function of the MEASURED
-        end-effector pose (and object pose), with phases switched by position/contact
-        rather than by tick. This makes the demonstration imitable in closed loop."""
+        """Contact-driven expert with acceleration-limited travel and gradual jaws.
+
+        Only actuator targets are commanded; the object remains a free body.
+        Phase transitions use measured pose/contact, not a playback clock.
+        """
         if self.controller.mode != "cartesian_delta_ik":
             raise UnsupportedMode("servo expert requires cartesian_delta_ik")
+        if self._duck_task is not None:
+            return self._duck_task.expert_action()
+        if self.config.task.plugin == "tabletop_push":
+            return self._push_expert_action()
         eef = self.data.xpos[self._eef]
         cup = self.data.xpos[self._judge.cup]
         goal = np.asarray(self.config.task.goal_xy)
-        ws_z = float(self.config.scene.work_surface_z)
-        h = float(getattr(self, "_active_height", self._asset_height))
-        clear_h = max(h, float(self._asset_height))
-        gs = self.config.task.goal_surface_m
-        ws_min_z = float(self.controller.workspace_min[2])
-        hover = min(.176, ws_z + clear_h / 2 + .09)
-        grab = max(ws_z + h / 2 + .002, ws_min_z + .001)
-        lift = min(.176, max(ws_z + h / 2 + .10, gs + h / 2 + .04))
-        drop = max(gs + h / 2 + .002, ws_min_z + .003)
-        tol = .005
+        h, gs = self._asset_height, self.config.task.goal_surface_m
+        hover, grab = min(.176, h / 2 + .09), h / 2 + .002
+        lift, drop = h / 2 + .10, gs + h / 2
+        tol = .003
+        dt = self.scheduler.control_period
         g = self.robot.gripper
         mean = (self.data.qpos[self._qposadr[g.left_joint]] + self.data.qpos[self._qposadr[g.right_joint]]) / 2
         grip_norm = float(np.clip((mean - self._closed) / (self._open - self._closed), 0, 1))
@@ -564,20 +500,81 @@ class PlatformEnv:
         waypoints = [(cup[0], cup[1], hover), (cup[0], cup[1], grab), (cup[0], cup[1], grab),
                      (cup[0], cup[1], lift), (goal[0], goal[1], lift), (goal[0], goal[1], drop),
                      (goal[0], goal[1], drop), (goal[0], goal[1], lift)]
-        grips = [1, 1, -1, -1, -1, -1, 1, 1]
-        wp, grip = np.asarray(waypoints[p]), grips[p]
-        if p in (0, 1, 3, 4, 5) and np.linalg.norm(eef - wp) < tol:
+        wp = np.asarray(waypoints[p])
+        arrived = (np.linalg.norm(eef - wp) < tol
+                   and np.linalg.norm(self._servo_velocity) < .025)
+        if p in (0, 1, 3, 4) and arrived:
             self._servo_phase = p + 1
+        elif p == 5 and arrived and self._judge.tray_contact:
+            self._servo_phase = 6
         elif p == 2:
+            if self._judge.contacts == 2 and self._servo_hold_width is None:
+                # A small squeeze beyond measured contact supplies grip force,
+                # instead of driving the jaws to their fully closed limit.
+                self._servo_hold_width = float(np.clip(mean - .003, self._closed, self._open))
             self._servo_dwell = self._servo_dwell + 1 if self._judge.contacts == 2 else 0
-            if self._servo_dwell >= 3:
+            if self._servo_dwell >= max(3, int(np.ceil(.25 / dt))):
                 self._servo_phase, self._servo_dwell = 3, 0
         elif p == 6:
             self._servo_dwell = self._servo_dwell + 1 if grip_norm > .8 else 0
             if self._servo_dwell >= 3:
                 self._servo_phase, self._servo_dwell = 7, 0
-        delta = np.clip((wp - eef) / self.controller.max_delta_m, -1, 1)
+        # Slow descent and placement; ramp velocity at starts, corners and stops.
+        # Integrate from the existing actuator target to avoid accumulating the
+        # measured tracking error as an extra position command every tick.
+        speed = (.22, .10, .04, .18, .23, .08, .04, .18)[p]
+        grip_goal = self._open
+        if 2 <= p <= 5:
+            grip_goal = self._closed if self._servo_hold_width is None else self._servo_hold_width
+        return self._smooth_expert_action(wp, speed, grip_goal)
+
+    def _smooth_expert_action(self, waypoint, speed, grip_goal, feedforward=None):
+        dt = self.scheduler.control_period
+        error = np.asarray(waypoint) - self._target
+        distance = np.linalg.norm(error)
+        desired_velocity = error * min(6.0, speed / max(distance, 1e-9))
+        if feedforward is not None:
+            desired_velocity += np.asarray(feedforward)
+            desired_velocity *= min(1., speed / max(np.linalg.norm(desired_velocity), 1e-9))
+        dv = desired_velocity - self._servo_velocity
+        acceleration = .65
+        self._servo_velocity += dv * min(1.0, acceleration * dt / max(np.linalg.norm(dv), 1e-9))
+        next_target = self._target + self._servo_velocity * dt
+        delta = np.clip((next_target - self._target) / self.controller.max_delta_m, -1, 1)
+
+        # 65 mm/s per jaw: a visible approach to contact, also on release.
+        self._servo_grip += float(np.clip(grip_goal - self._servo_grip, -.065 * dt, .065 * dt))
+        grip = 2 * (self._servo_grip - self._closed) / (self._open - self._closed) - 1
         return [*delta.tolist(), grip]
+
+    def _push_expert_action(self):
+        """Push with closed fingertips; never move the free object directly."""
+        p = self._push_phase
+        source = self._judge.start_xyz
+        cup = self.data.xpos[self._judge.cup]
+        eef = self.data.xpos[self._eef]
+        gx, gy = self.config.task.goal_xy
+        contact_x = self._asset_radius + .014
+        z = self._asset_height / 2 + .002
+        waypoints = ([source[0] - contact_x - .012, source[1], .125],
+                     [source[0] - contact_x - .012, source[1], z],
+                     [gx - contact_x + .004, gy, z],
+                     [gx - contact_x, gy, .125])
+        wp = np.asarray(waypoints[p])
+        arrived = np.linalg.norm(eef - wp) < .004 and np.linalg.norm(self._servo_velocity) < .025
+        if p in (0, 1) and arrived:
+            self._push_phase += 1
+        elif p == 2 and np.linalg.norm(cup[:2] - [gx, gy]) < .013:
+            self._push_phase = 3
+        return self._smooth_expert_action(wp, (.18, .08, .065, .12)[p], self._closed)
+
+    def expert_stage(self):
+        if self._duck_task is not None:
+            from .duck_conveyor import STAGES
+            return STAGES[self._duck_task.phase]
+        if self.config.task.plugin == "tabletop_push":
+            return ("准备推移", "下降对齐", "接触推移", "撤离并等待稳定")[self._push_phase]
+        return ("接近物体", "减速下降", "夹紧与接触确认", "抬升", "搬运", "放置", "松开", "撤离")[self._servo_phase]
 
     def render(self, camera="front", width=800, height=540):
         """Preview rendering: uses exactly the same backend/scene source as observation."""

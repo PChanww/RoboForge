@@ -3,11 +3,15 @@
 The collect job writes a config snapshot; later edits to the project's current config
 must not change that job's parameters or snapshot.
 """
+import errno
 import json
 import shutil
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import Mock
+
+import pytest
 
 LAB = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(LAB))
@@ -56,6 +60,72 @@ def test_job_uses_config_snapshot_after_edit():
                "invalid_plans_rejected": bad})
     finally:
         shutil.rmtree(root, ignore_errors=True)
+
+
+
+def test_finished_index_is_read_without_startup_write(tmp_path, monkeypatch):
+    index = tmp_path / "datasets" / "jobs" / "jobs.json"
+    index.parent.mkdir(parents=True)
+    index.write_text('[{"id": "old", "kind": "eval", "status": "succeeded"}]', encoding="utf-8")
+    save = Mock(side_effect=OSError(errno.ENOSPC, "disk full"))
+    monkeypatch.setattr(JobManager, "_save", save)
+
+    manager = JobManager(tmp_path)
+
+    assert manager.get("old")["status"] == "succeeded"
+    save.assert_not_called()
+
+
+def test_windows_index_replace_retries_a_temporary_lock(tmp_path, monkeypatch):
+    manager = JobManager(tmp_path)
+    manager.dir.mkdir(parents=True)
+    replace = Path.replace
+    attempts = []
+
+    def temporary_lock(path, target):
+        attempts.append(path)
+        if len(attempts) == 1:
+            problem = PermissionError(errno.EACCES, "destination temporarily open")
+            problem.winerror = 5
+            raise problem
+        return replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", temporary_lock)
+    manager._save()
+
+    assert json.loads(manager.index_path.read_text(encoding="utf-8")) == []
+    assert len(attempts) == 2
+    assert not list(manager.dir.glob("*.tmp"))
+
+
+def test_index_write_failure_does_not_abandon_running_subprocess(tmp_path, monkeypatch):
+    manager = JobManager(tmp_path)
+    monkeypatch.setattr(manager, "_run", Mock())
+    job = manager.create("eval", {})
+    process = Mock()
+    process.wait.return_value = 0
+    monkeypatch.setattr("vlab.jobs.subprocess.Popen", Mock(return_value=process))
+    monkeypatch.setattr(manager, "_save", Mock(side_effect=OSError(errno.ENOSPC, "disk full")))
+
+    manager._execute(job)
+
+    process.wait.assert_called_once_with()
+    assert job["status"] == "succeeded" and job["returncode"] == 0
+    assert "磁盘空间不足" in job["storage_error"]
+    assert job["id"] not in manager._procs
+
+
+def test_failed_job_registration_does_not_queue_worker(tmp_path, monkeypatch):
+    manager = JobManager(tmp_path)
+    worker = Mock()
+    monkeypatch.setattr(manager, "_run", worker)
+    monkeypatch.setattr(manager, "_save", Mock(side_effect=OSError(errno.ENOSPC, "disk full")))
+
+    with pytest.raises(OSError, match="disk full"):
+        manager.create("eval", {})
+
+    assert manager.list() == []
+    worker.assert_not_called()
 
 
 def main():

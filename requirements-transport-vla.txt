@@ -1,0 +1,29 @@
+# Isolated Windows/Python 3.13 CUDA inference environment; do not install in .venv.
+# Requires a compatible NVIDIA driver; no CUDA developer toolkit is needed.
+# Put TEMP/TMP on a drive with enough room for the 2.5 GB official CUDA wheel.
+# 1. python -m pip install --no-cache-dir torch==2.6.0+cu126 torchvision==0.21.0+cu126 --index-url https://download.pytorch.org/whl/cu126
+# 2. python -m pip install --no-cache-dir -r requirements-transport-vla.txt
+# 3. python -m pip install --no-cache-dir --no-deps lerobot==0.4.4
+# LeRobot's full dependency set includes training/robot/media tooling that the
+# HTTP inference service does not use. Its import graph still requires datasets,
+# diffusers and av; keep these rather than patching or stubbing upstream imports.
+torch==2.6.0+cu126
+torchvision==0.21.0+cu126
+transformers==4.57.3
+accelerate==1.12.0
+draccus==0.10.0
+einops==0.8.1
+huggingface-hub==0.35.3
+safetensors==0.7.0
+datasets==4.4.1
+diffusers==0.35.2
+av==15.1.0
+gymnasium==1.2.2
+jsonlines==4.0.0
+termcolor==3.2.0
+num2words==0.5.14
+packaging==25.0
+imageio==2.37.2
+# Also imported eagerly through LeRobot's robot configuration base classes.
+pyserial==3.5
+deepdiff==8.6.1

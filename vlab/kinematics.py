@@ -45,6 +45,54 @@ def analytic_ik(point, p):
     return [yaw, pitch, bend, -pitch - bend, -yaw]
 
 
+def clamp_to_reach(point, p, *, margin=5e-4):
+    """Project a Cartesian target onto this arm's reachable annulus.
+
+    The analytic IK enforces reach by raising, which turns a millimetre of
+    overshoot into a dead episode. Callers that must keep running (a learned
+    policy has no reach model) need the bounded form instead: keep the azimuth
+    and the radial/vertical ratio, rescale the distance into
+    ``[|l1-l2|+margin, l1+l2-margin]``.
+
+    Returns ``(point, info)``. ``point`` is the caller's own array and ``info``
+    is None when the request was already reachable; otherwise ``info`` carries
+    the before/after evidence needed to record what was asked for versus what
+    the robot could execute.
+
+    ``margin`` defaults to 0.5 mm so a world->base->world round trip in front
+    of the analytic solver cannot land exactly on the singular boundary.
+    """
+    q = np.asarray(point, dtype=float)
+    if q.shape != (3,) or not np.isfinite(q).all():
+        raise ValueError("reach projection needs a finite 3D point")
+    x, y, z = (float(v) for v in q)
+    radial = np.hypot(x, y - p["base_y"])
+    h = z + p["tool"] - p["shoulder_z"]
+    dist = float(np.hypot(radial, h))
+    outer = p["l1"] + p["l2"] - margin
+    inner = abs(p["l1"] - p["l2"]) + margin
+    if inner <= dist <= outer:
+        return q, None
+    limit = outer if dist > outer else inner
+    if dist <= 1e-12:
+        unit_radial, unit_h = 1.0, 0.0
+    else:
+        unit_radial, unit_h = radial / dist, h / dist
+    new_radial, new_h = unit_radial * limit, unit_h * limit
+    yaw = np.arctan2(y - p["base_y"], x)
+    projected = np.array([new_radial * np.cos(yaw),
+                          p["base_y"] + new_radial * np.sin(yaw),
+                          p["shoulder_z"] + new_h - p["tool"]])
+    return projected, {
+        "kind": "reach_clamped_outer" if dist > outer else "reach_clamped_inner",
+        "requested_distance_m": round(dist, 6),
+        "limit_m": round(float(limit), 6),
+        "overshoot_m": round(dist - limit, 6),
+        "requested_point": [round(v, 6) for v in q.tolist()],
+        "projected_point": [round(float(v), 6) for v in projected],
+    }
+
+
 def analytic_fk(q, p):
     yaw, pitch, bend, wp, wy = q
     radial = p["l1"] * np.sin(pitch) + p["l2"] * np.sin(pitch + bend)

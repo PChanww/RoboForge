@@ -1,32 +1,59 @@
-# Runtime / generated
-__pycache__/
-*.pyc
-*.pyo
-.pytest_cache/
-.vite/
-node_modules/
-frontend/dist/
-projects/
-datasets/*
-!datasets/reports/
-!datasets/reports/*.json
-!datasets/models/
-!datasets/models/*.pt
-!datasets/models/*.npz
-deploy/
-*.log
+# RoboForge — source repository ignore rules
+#
+# This file is written for a standalone RoboForge repository. It keeps the tree
+# to source, docs, configs and small reports: everything a fresh clone can
+# rebuild, plus the evidence JSON that records what was measured.
 
-# Local environment
+# --- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# --- Local environments (never commit) ------------------------------------
+.venv/
+.venv-vla/
+node_modules/
+frontend/node_modules/
+
+# --- Frontend build output ------------------------------------------------
+frontend/dist/
+frontend/.vite/
+frontend/.npm-cache/
+*.tsbuildinfo
+
+# --- Local QA evidence: screenshots, traces, scratch HTTP dumps ------------
+frontend/.qa/
+.qa/
+
+# --- Local working area: downloaded weights, logs, scratch -----------------
+work/
+*.log
+.backend-smoke-job
+
+# --- Credentials ----------------------------------------------------------
 .env
 .env.*
 !.env.example
-.venv/
-work/
 
-# OS
+# --- Local model training artifacts ---------------------------------------
+# Checkpoints, training reports and every recorded episode stay on the machine
+# that produced them. Only the small evaluation/QA reports are versioned.
+# The trailing /* keeps git able to descend into the whitelisted subdirectory.
+datasets/*
+!datasets/reports/
+!datasets/reports/*.json
+
+# --- Imported / generated 3D assets ---------------------------------------
+# ~113 MB of meshes. Rebuild or re-import through asset_pipeline and
+# integrations rather than versioning them.
+assets/
+
+# --- Runtime project state and deploy packages ----------------------------
+projects/
+deploy/
+
+# --- OS / editor ----------------------------------------------------------
 .DS_Store
 Thumbs.db
-exports/*/datasets/
-exports/*/base_weights/
-datasets/models/*/*.safetensors
-outputs/
+.idea/
+.vscode/

@@ -20,7 +20,7 @@ RoboForge currently uses MuJoCo for physics and a React + React Three Fiber edit
 
 The browser's inspection camera is separate from the sensor cameras used by a policy. The current UI is primarily Chinese; the documentation is available in both languages.
 
-Experiment results, validation evidence, and implementation limitations are documented in the [audit report](docs/AUDIT.md). To pick up development, start with the [migration handoff](MIGRATION_HANDOFF.zh-CN.md) (honest current status, known defects, usage, git info).
+Experiment results, validation evidence, and implementation limitations are documented in the [audit report](docs/AUDIT.md).
 
 ## Quick start
 

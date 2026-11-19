@@ -6,7 +6,6 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 
 export interface Inst { position: number[]; quaternion_xyzw: number[]; uniform_scale: number }
 export interface Col { name: string; shape: string; full_size_m: number[]; position: number[]; quaternion_xyzw: number[]; enabled?: boolean }
-export interface AssetNodeItem { node_id: string; asset_ref: string; role: string; position: number[]; quaternion_xyzw: number[]; uniform_scale: number; collider_ref?: string | null }
 
 export function quatXYZW(q?: number[]): [number, number, number, number] {
   const v = q && q.length === 4 ? q : [0, 0, 0, 1]
@@ -43,12 +42,12 @@ function ColMesh({ c, color }: { c: Col; color: string }) {
 }
 
 interface RigProps {
-  inst: Inst; cols: Col[]; assetNodes?: AssetNodeItem[]; assetUrl: string | null; selected: any
+  inst: Inst; cols: Col[]; assetUrl: string | null; selected: any
   onSelect: (s: any) => void; onMove: (i: number, p: number[], q: number[]) => void
   onInstanceMove: (p: number[], q: number[]) => void; showGrid: boolean; gizmo: 'translate' | 'rotate'
 }
 
-function Rig({ inst, cols, assetNodes = [], assetUrl, selected, onSelect, onMove, onInstanceMove, showGrid, gizmo }: RigProps) {
+function Rig({ inst, cols, assetUrl, selected, onSelect, onMove, onInstanceMove, showGrid, gizmo }: RigProps) {
   const orbit = useRef<any>(null)
   const instRef = useRef<THREE.Group>(null)
   const colRefs = useRef<Record<number, THREE.Group | null>>({})
@@ -99,11 +98,6 @@ function Rig({ inst, cols, assetNodes = [], assetUrl, selected, onSelect, onMove
           scale={[s, s, s]} onClick={(e) => { e.stopPropagation(); onSelect({ kind: 'instance' }) }}>
           {assetUrl ? <Suspense fallback={null}><SceneMesh url={assetUrl} /></Suspense> : null}
         </group>
-        {assetNodes.map((n) => (
-          <group key={n.node_id} position={n.position as any} quaternion={quatXYZW(n.quaternion_xyzw)} scale={[n.uniform_scale || 1, n.uniform_scale || 1, n.uniform_scale || 1]}>
-            <Suspense fallback={null}><SceneMesh url={`/api/v1/asset-mesh?ref=${encodeURIComponent(n.asset_ref)}`} /></Suspense>
-          </group>
-        ))}
         {cols.map((c, i) => c.enabled === false ? null : (
           <group key={c.name + i} ref={(g) => { colRefs.current[i] = g }}
             position={c.position as any} quaternion={quatXYZW(c.quaternion_xyzw)}
@@ -122,8 +116,8 @@ function Rig({ inst, cols, assetNodes = [], assetUrl, selected, onSelect, onMove
   )
 }
 
-export default function SceneCanvas({ assetUrl, inst, cols, assetNodes = [], selected, onSelect, onMove, onInstanceMove, showGrid }:
-  { assetUrl: string | null; inst: Inst; cols: Col[]; assetNodes?: AssetNodeItem[]; selected: any; onSelect: (s: any) => void
+export default function SceneCanvas({ assetUrl, inst, cols, selected, onSelect, onMove, onInstanceMove, showGrid }:
+  { assetUrl: string | null; inst: Inst; cols: Col[]; selected: any; onSelect: (s: any) => void
     onMove: (i: number, p: number[], q: number[]) => void; onInstanceMove: (p: number[], q: number[]) => void; showGrid: boolean }) {
   const [gizmo, setGizmo] = useState<'translate' | 'rotate'>('translate')
   return (
@@ -134,7 +128,7 @@ export default function SceneCanvas({ assetUrl, inst, cols, assetNodes = [], sel
       </div>
       <Canvas shadows camera={{ position: [1.1, 0.9, 1.1], fov: 45, up: [0, 1, 0] }} onPointerMissed={() => onSelect(null)}>
         <color attach="background" args={['#0d151a']} />
-        <Rig inst={inst} cols={cols} assetNodes={assetNodes} assetUrl={assetUrl} selected={selected} onSelect={onSelect}
+        <Rig inst={inst} cols={cols} assetUrl={assetUrl} selected={selected} onSelect={onSelect}
           onMove={onMove} onInstanceMove={onInstanceMove} showGrid={showGrid} gizmo={gizmo} />
       </Canvas>
     </div>

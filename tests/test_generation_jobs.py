@@ -5,9 +5,13 @@ import uses the existing cup GLB. Covers distinct cup/tray/toolbox defaults,
 normalization records, uncalibrated visual-only blocking, bad-mesh errors,
 double-confirm idempotency, frozen binding, submit_unknown and node retry.
 """
+import errno
 import json
 import sys
 from pathlib import Path
+from unittest.mock import Mock
+
+import pytest
 
 LAB = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(LAB))
@@ -115,6 +119,31 @@ def test_node_retry_reuses_remote_and_file(tmp_path):
     assert prov.submits == before
     assert after["state"] == "succeeded"
     assert after["retries"] == 1
+
+
+
+@pytest.mark.parametrize("store_name,index_name,recovered", [
+    ("object", "object_jobs.json", "submit_unknown"),
+    ("world", "generation_jobs.json", "interrupted"),
+])
+def test_generation_startup_survives_unwritable_index(tmp_path, monkeypatch, store_name, index_name, recovered):
+    from vlab.world_provider import GenerationJobStore
+
+    store = ObjectJobStore if store_name == "object" else GenerationJobStore
+    index = tmp_path / index_name
+    job = {"id": "existing", "state": "succeeded"}
+    index.write_text(json.dumps([job]), encoding="utf-8")
+    save = Mock(side_effect=OSError(errno.ENOSPC, "disk full"))
+    monkeypatch.setattr(store, "_save", save)
+
+    assert store(tmp_path).get("existing")["state"] == "succeeded"
+    save.assert_not_called()
+
+    job["state"] = "submitting"
+    index.write_text(json.dumps([job]), encoding="utf-8")
+    assert store(tmp_path).get("existing")["state"] == recovered
+    save.assert_called_once_with()
+    assert json.loads(index.read_text(encoding="utf-8"))[0]["state"] == "submitting"
 
 
 def test_restart_marks_submitting_unknown(tmp_path):

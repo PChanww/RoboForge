@@ -37,19 +37,14 @@ def find_gaussian_ply(lab_root, scene_instance):
 
 
 def foreground_ids(env):
-    """Segmentation object ids for robot links + cup + tray + scene asset nodes. MuJoCo Renderer
-    returns objid/objtype directly, so the foreground id is the geom id (no +1)."""
+    """Segmentation object ids for robot links + cup + tray. MuJoCo Renderer returns
+    objid/objtype directly, so the foreground id is the geom id (no +1)."""
     fg = set()
     robot_bodies = {l.name for l in env.robot.links} | {"cup"}
-    tray_ref = getattr(env.config.task, "goal_tray_collider_ref", None)
-    tray_prefix = (tray_ref[:-7] if tray_ref and tray_ref.endswith("_part_0") else tray_ref)
     for gid in range(env.model.ngeom):
         name = env.model.geom(gid).name
         body = env.model.body(env.model.geom_bodyid[gid]).name
-        if (body in robot_bodies or body.startswith("node_")
-                or name == "tray"
-                or (tray_ref and (name == tray_ref or name.startswith(f"{tray_prefix}_part_")))
-                or name.endswith("_pad") or name == "cup_contact" or name.startswith("cup_contact_")):
+        if body in robot_bodies or name == "tray" or name.endswith("_pad") or name == "cup_contact":
             fg.add(gid)
     return fg
 
