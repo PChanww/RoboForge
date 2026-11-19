@@ -15,7 +15,7 @@ import re
 from .schema import (AssetKind, AssetSpec, CompiledGenerationRequest, GenerationSession,
                      PhysicsSpec, SceneRecipe, validate_reference_image)
 
-COMPILER_VERSION = "1.0"
+COMPILER_VERSION = "1.1"
 
 LUX3D_PAYLOAD_DEFAULTS = {
     "version": "G1-Turbo", "style": "photorealistic", "face_count": 20000,
@@ -61,6 +61,7 @@ _NO_HANDLE_RE = re.compile(r"(?:\bhandleless\b|\bno\s+handle\b|\bwithout\s+(?:a\
 _WITH_HANDLE_RE = re.compile(r"(?:\bwith\s+(?:a\s+)?handle\b|带把手|有把手)")
 _OPEN_TOP_RE = re.compile(r"(?:\bopen[\s-]+top\b|开口)")
 _CLOSED_TOP_RE = re.compile(r"(?:\bclosed[\s-]+top\b|\bsealed[\s-]+top\b|闭口|封口)")
+_VESSEL_FEATURE_KINDS = {AssetKind.task_object, AssetKind.static_prop}
 
 _UNIT_SCALE = {"m": 1.0, "米": 1.0, "cm": 0.01, "厘米": 0.01, "mm": 0.001, "毫米": 0.001}
 _DIM_PATTERNS = [
@@ -73,6 +74,8 @@ _DIM_PATTERNS = [
 
 
 def _contradictions(spec: AssetSpec) -> list[str]:
+    if spec.kind not in _VESSEL_FEATURE_KINDS:
+        return []
     words = (spec.user_words or "").lower()
     issues = []
     if spec.has_handle is True and _NO_HANDLE_RE.search(words):
@@ -88,14 +91,15 @@ def validate_prompt_against_spec(spec: AssetSpec, prompt_en: str) -> list[str]:
         raise CompileError("prompt_en 不能为空")
     text = prompt_en.lower()
     issues = []
-    if spec.has_handle is True and _NO_HANDLE_RE.search(text):
-        issues.append("提示词包含无把手表述，与规格 has_handle=true 冲突")
-    if spec.has_handle is False and _WITH_HANDLE_RE.search(text):
-        issues.append("提示词包含带把手表述，与规格 has_handle=false 冲突")
-    if spec.open_top is True and _CLOSED_TOP_RE.search(text):
-        issues.append("提示词包含闭口/封口表述，与规格 open_top=true 冲突")
-    if spec.open_top is False and _OPEN_TOP_RE.search(text):
-        issues.append("提示词包含开口表述，与规格 open_top=false 冲突")
+    if spec.kind in _VESSEL_FEATURE_KINDS:
+        if spec.has_handle is True and _NO_HANDLE_RE.search(text):
+            issues.append("提示词包含无把手表述，与规格 has_handle=true 冲突")
+        if spec.has_handle is False and _WITH_HANDLE_RE.search(text):
+            issues.append("提示词包含带把手表述，与规格 has_handle=false 冲突")
+        if spec.open_top is True and _CLOSED_TOP_RE.search(text):
+            issues.append("提示词包含闭口/封口表述，与规格 open_top=true 冲突")
+        if spec.open_top is False and _OPEN_TOP_RE.search(text):
+            issues.append("提示词包含开口表述，与规格 open_top=false 冲突")
     for axis, pattern in _DIM_PATTERNS:
         target_dim = spec.radius if axis in ("diameter", "radius") else getattr(spec, axis)
         if target_dim.value_m is None:
@@ -128,7 +132,7 @@ def build_en_prompt(spec: AssetSpec) -> str:
         return (f"3D environment mesh of {base}{dtxt}, flat horizontal worktop, "
                 "empty central placement zone, no robots, no people, no text.")
     if spec.kind == AssetKind.robot_visual:
-        noun = "robot arm appearance model (visual shell only, no articulated joints)"
+        noun = "robot arm or component mesh (static visual model, no articulated joints)"
     elif spec.kind == AssetKind.static_prop:
         noun = "static prop object"
     else:
@@ -148,17 +152,11 @@ def build_en_prompt(spec: AssetSpec) -> str:
             dims.append(f"{_cm(spec.depth.value_m)} deep")
     if dims:
         parts.append(", ".join(dims))
-    feats = []
-    if spec.has_handle is False:
-        feats.append("handleless")
-    elif spec.has_handle is True:
-        feats.append("with a handle")
-    if spec.open_top is True:
-        feats.append("an open top")
-    elif spec.open_top is False:
-        feats.append("a closed top")
-    if feats:
-        parts.append(", ".join(feats))
+    if spec.kind in _VESSEL_FEATURE_KINDS:
+        if spec.has_handle is not None:
+            parts.append("with a handle" if spec.has_handle else "handleless")
+        if spec.open_top is not None:
+            parts.append("an open top" if spec.open_top else "a closed top")
     if spec.appearance:
         parts.append(spec.appearance)
     return ". ".join(parts) + ". Isolated object, no table, no liquid, no text."
@@ -173,11 +171,14 @@ def build_zh_spec(spec: AssetSpec, physics: PhysicsSpec) -> str:
     lines = [f"类型：{spec.kind.value}；角色：{spec.role.value}",
              f"名称：{spec.name or '未命名'}",
              f"高度：{lab(spec.height)}；宽度：{lab(spec.width)}；深度：{lab(spec.depth)}；半径：{lab(spec.radius)}",
-             f"把手：{'无' if spec.has_handle is False else '有' if spec.has_handle is True else '未说明'}；"
-             f"开口：{'是' if spec.open_top is True else '否' if spec.open_top is False else '未说明'}",
              f"外观：{spec.appearance or '未说明'}",
              f"质量：{physics.mass.value_kg if physics.mass.value_kg is not None else '未知'} kg"
              f"（{physics.mass.provenance.source.value}）；可抓取：{physics.graspable}"]
+    if spec.kind in _VESSEL_FEATURE_KINDS:
+        if spec.has_handle is not None:
+            lines.append(f"把手：{'有' if spec.has_handle else '无'}")
+        if spec.open_top is not None:
+            lines.append(f"开口：{'是' if spec.open_top else '否'}")
     if spec.description_zh:
         lines.append(f"描述：{spec.description_zh}")
     return "\n".join(lines)

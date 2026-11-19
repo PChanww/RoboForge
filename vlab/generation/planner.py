@@ -33,6 +33,7 @@ SYSTEM_PROMPT = """你是 RoboForge 的资产需求规划器。你只负责理�
 - 你给出的尺寸/质量/摩擦/可抓取性都是 model_inferred 建议，verification 永远是 unverified。
 - 不要承诺生成器一定满足精确尺寸、拓扑或关节；生成不保证这些。
 - 区分“用户没说”(null) 与“用户接受默认值”。未知尺寸保持 null。
+- 只有任务物体或静态道具明确需要说明把手或开口时，才询问这些特征；不要把器皿问题用于机械臂、场景或背景。
 - robot_visual 只是外观，不是可动物理机器人。
 
 输出 JSON 结构：
@@ -51,6 +52,11 @@ class PlannerError(Exception):
     pass
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 class Planner:
     def __init__(self, base_url: str | None = None, api_key: str | None = None,
                  model: str | None = None):
@@ -66,15 +72,21 @@ class Planner:
                 "base_url": self.base_url or None, "model": self.model,
                 "api_key_env": "AUX_MODEL_API_KEY", "configured": self.configured()}
 
-    def _chat(self, messages: list[dict]) -> str:
+    def _chat(self, messages: list[dict], *, max_tokens=MAX_TOKENS, timeout=TIMEOUT_S) -> str:
         body = json.dumps({"model": self.model, "messages": messages,
-                           "max_tokens": MAX_TOKENS, "temperature": 0.2}).encode()
+                           "max_tokens": max_tokens, "temperature": 0.2}).encode()
         req = urllib.request.Request(
             self.base_url + "/chat/completions", data=body,
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"})
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
+        with urllib.request.build_opener(_NoRedirect()).open(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode())
-        return data["choices"][0]["message"]["content"]
+        content = data["choices"][0]["message"]["content"]
+        if not isinstance(content, str) or not content.strip():
+            raise PlannerError("服务未返回可用的文本。")
+        return content.replace(self.api_key, "[redacted]") if self.api_key else content
+
+    def test_connection(self) -> None:
+        self._chat([{"role": "user", "content": "Reply with OK."}], max_tokens=32, timeout=15)
 
     @staticmethod
     def _extract_json(text: str) -> dict:
@@ -105,7 +117,8 @@ class Planner:
         try:
             raw = self._chat(messages)
         except Exception as exc:
-            raise PlannerError(f"planner request failed: {exc}") from exc
+            detail = str(exc).replace(self.api_key, "[redacted]") if self.api_key else str(exc)
+            raise PlannerError(f"planner request failed: {detail}") from None
         try:
             return PlannerReply.model_validate(self._extract_json(raw))
         except Exception as first_err:

@@ -130,7 +130,7 @@ def test_reference_image_validation_and_lux3d_img_to_3d_routing(tmp_path, monkey
     fake_sdk = MagicMock()
     fake_sdk.img_to_3d.create.return_value = 99001
     fake_sdk.text_to_3d.create.return_value = 99002
-    prov._client = fake_sdk
+    monkeypatch.setattr(prov, "_sdk", lambda: fake_sdk)
 
     rid1 = prov.submit(comp["compiled"]["prompt_en"], comp["compiled"]["payload"])
     assert rid1 == "99001"
@@ -393,7 +393,7 @@ def test_part_split_assemble_robot_and_urdf_export(tmp_path, monkeypatch):
     prov = Lux3DProvider()
     fake_sdk = MagicMock()
     fake_sdk.part_split.create.return_value = 777001
-    prov._client = fake_sdk
+    monkeypatch.setattr(prov, "_sdk", lambda: fake_sdk)
     assert prov.submit_part_split("https://example.com/model.glb") == "777001"
     fake_sdk.part_split.create.assert_called_once_with(glb_url="https://example.com/model.glb")
 
@@ -779,6 +779,74 @@ def test_select_target_for_instruction(tmp_path):
         assert env2.select_target_for_instruction("Pick up the orange cube and place it inside the tray.") == "cup"
     finally:
         env2.close()
+
+
+def test_omni_instruction_runs_or_holds_on_current_session(tmp_path, monkeypatch):
+    from vlab import smolvla_infer
+    from vlab.hackathon_demo import setup_hackathon_demo
+
+    lab = _make_lab(tmp_path)
+    setup_hackathon_demo(lab, ConfigStore(lab / "projects"), project_id="hack_test", with_world_background=False)
+    model_dir = lab / "datasets" / "models" / "so100_smolvla_omni"
+    model_dir.mkdir(parents=True)
+    (model_dir / "so100_stats.json").write_text("{}", encoding="utf-8")
+    commands = []
+    replans = []
+    applied = []
+    apply = PlatformEnv._apply
+
+    def record_apply(env, action):
+        applied.append(action.tolist())
+        return apply(env, action)
+
+    monkeypatch.setattr(PlatformEnv, "_apply", record_apply)
+
+    class RecordingPolicy:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def reset(self):
+            replans.append(True)
+
+        def act(self, obs, *, instruction):
+            commands.append((obs["tick"], instruction))
+            return [0.0, 0.0, 0.0, 1.0]
+
+    monkeypatch.setattr(smolvla_infer, "SmolVLAPolicyRunner", RecordingPolicy)
+    with TestClient(create_app(lab)) as client:
+        session = client.post("/api/v1/sessions", json={"project": "hack_test", "raw_policy_cameras": True}).json()
+        route = f"/api/v1/sessions/{session['id']}"
+        token = client.post(route + "/control/acquire", json={"owner": "test"}).json()["token"]
+        body = {"token": token, "epoch": session["epoch"], "model_id": "so100_smolvla_omni"}
+        advance = client.post(route + "/action", json={**body, "action": [0.0, 0.0, 0.0, 1.0]})
+        assert advance.json()["tick"] == 1
+
+        for tick, unsupported in enumerate(("搬出黄色方块", "Remove the orange cube from the tray."), start=2):
+            held = client.post(route + "/policy_step", json={**body, "instruction": unsupported, "start": True})
+            assert held.status_code == 200, held.text
+            obs = held.json()
+            assert obs["instruction_warning"] and obs["last_action"] is None
+            assert obs["tick"] == tick
+        assert commands == replans == []
+        assert len(applied) == 1
+        assert obs["images"]["wrist"]["frame_id"] > advance.json()["images"]["wrist"]["frame_id"]
+
+        instruction = "Please move the orange block gently into the tray."
+        result = client.post(route + "/policy_step", json={**body, "instruction": instruction, "start": True})
+        assert result.status_code == 200, result.text
+        assert result.json()["tick"] == 4
+        assert result.json()["metrics"]["active_target"] == "companion_cube"
+        assert commands == [(3, instruction)]
+        assert len(replans) == 1
+
+        second = "  Please put the cup in the tray.  "
+        result = client.post(route + "/policy_step", json={**body, "instruction": second, "start": True})
+        assert result.status_code == 200, result.text
+        assert result.json()["tick"] == 5
+        assert result.json()["metrics"]["active_target"] == "cup"
+        assert commands[-1] == (4, second)
+        assert len(replans) == 2
+        assert client.get(route + "/observation").json()["epoch"] == session["epoch"]
 
 
 def test_collect_records_active_target_and_object_xy(tmp_path):

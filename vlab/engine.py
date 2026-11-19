@@ -16,6 +16,7 @@ from PIL import Image
 import arm
 
 from . import kinematics, scene_builder, tasks
+from .compat import IK_JOINTS, camera_binding_issue, select_controller, supports_cartesian_ik
 from .mjcf import mesh_files, robot_xml
 from .rendering.snapshot import capture_snapshot
 from .scheduler import CameraBuffer, Scheduler
@@ -38,9 +39,12 @@ class PlatformEnv:
     def __init__(self, config: ProjectConfig, lab_root: Path, robot_id=None, controller_id=None):
         self.config = config
         self.lab_root = Path(lab_root)
-        self.robot = config.robots[0] if robot_id is None else next(r for r in config.robots if r.id == robot_id)
-        self.controller = (config.controllers[0] if controller_id is None
-                           else next(c for c in config.controllers if c.id == controller_id))
+        self.robot = next((r for r in config.robots if robot_id is None or r.id == robot_id), None)
+        if self.robot is None:
+            raise ValueError(f"Unknown robot {robot_id!r}")
+        self.controller = select_controller(config, self.robot, controller_id)
+        if self.controller is None:
+            raise ValueError(f"No compatible controller configured for robot {self.robot.id!r}")
         self._renderers = {}
         self._seg_renderers = {}
         self._sensor_errors = {}
@@ -53,8 +57,7 @@ class PlatformEnv:
 
     # -- model construction -------------------------------------------------
     def _has_5r_chain(self):
-        names = {j.name for j in self.robot.joints}
-        return {"waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"} <= names
+        return supports_cartesian_ik(self.robot)
 
     def _ik(self, point):
         if self.controller.mode != "cartesian_delta_ik":
@@ -159,16 +162,19 @@ class PlatformEnv:
         self._render_error = None
         if not hasattr(self, "_hybrid"):
             self._hybrid = None  # world-fixed gaussian background: cached across resets
-        self._sensor_errors = {}
+        self._sensor_errors = {
+            sensor.id: issue for sensor in self.config.sensors
+            if (issue := camera_binding_issue(self.robot, sensor, self.config.scene.sensor_renderer))
+        }
         self._seg_renderers = {}
         if self.controller.mode == "cartesian_delta_ik":
             ik = self._ik(self._target)
-            for name, q in zip(("waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"), ik):
+            for name, q in zip(IK_JOINTS, ik):
                 self.data.qpos[self._qposadr[name]] = q
         else:
             for j in self.robot.joints:
                 if j.type != "fixed":
-                    self.data.qpos[self._qposadr[j.name]] = j.initial
+                    self.data.qpos[int(self.model.joint(j.name).qposadr[0])] = j.initial
         if g:
             self.data.qpos[self._qposadr[g.left_joint]] = self._open
             self.data.qpos[self._qposadr[g.right_joint]] = self._open
@@ -182,7 +188,8 @@ class PlatformEnv:
         self._active_target = "cup"
         self._active_radius = self._asset_radius
         self._active_height = self._asset_height
-        self._judge = tasks.Judge(self.model, self.data, self.config.task, self._asset_radius, self._asset_height)
+        self._judge = tasks.Judge(self.model, self.data, self.config.task, self._asset_radius, self._asset_height,
+                                 pad_geoms=g.pad_geoms)
         self._buffers = {s.id: CameraBuffer() for s in self.config.sensors}
         self._capture_all(0.0)
         self._sample_state(0.0)
@@ -195,7 +202,8 @@ class PlatformEnv:
             self._active_target = "cup"
             self._active_radius = float(self._asset_radius)
             self._active_height = float(self._asset_height)
-            self._judge = tasks.Judge(self.model, self.data, self.config.task, self._active_radius, self._active_height)
+            self._judge = tasks.Judge(self.model, self.data, self.config.task, self._active_radius, self._active_height,
+                                     pad_geoms=self.robot.gripper.pad_geoms)
         else:
             dyn = (self._state or {}).get("dynamic_objects") or {}
             if tid not in dyn:
@@ -219,6 +227,7 @@ class PlatformEnv:
                 body_name=f"node_{tid}",
                 geom_prefix=f"node_{tid}_col",
                 freejoint_name=f"node_{tid}_free",
+                pad_geoms=self.robot.gripper.pad_geoms,
             )
         self._servo_phase = 0
         self._servo_dwell = 0
@@ -272,6 +281,9 @@ class PlatformEnv:
             mujoco.mj_step(self.model, self.data)
 
     def _render_camera(self, sensor, width=None, height=None):
+        issue = camera_binding_issue(self.robot, sensor, self.config.scene.sensor_renderer)
+        if issue:
+            raise UnsupportedMode(issue)
         w, h = sensor.resolution if width is None else (width, height)
         key = (w, h)
         if key not in self._renderers:
@@ -281,8 +293,6 @@ class PlatformEnv:
         rgb = renderer.render()
         if self.config.scene.sensor_renderer != "hybrid":
             return rgb
-        if sensor.id != "front":
-            raise UnsupportedMode("static_background_overlay only supports the world-fixed front camera")
         from .rendering.hybrid import foreground_ids
         hybrid = self._hybrid_renderer(sensor, w, h)
         skey = (w, h, "seg")
@@ -323,7 +333,7 @@ class PlatformEnv:
         return self._hybrid
 
     def _push_frame(self, sensor, episode_time, snap=None):
-        if self._render_error:
+        if self._render_error or sensor.id in self._sensor_errors:
             return  # headless/no-GL: physics still runs, cameras report unavailable
         # Capture an immutable snapshot at the sampling instant, then render from it.
         if snap is None:
@@ -436,7 +446,7 @@ class PlatformEnv:
             except kinematics.Unreachable as exc:
                 self._ik_error = exc.reason  # keep last valid control target
                 ik = self._ik(self._target)
-            for name, q in zip(("waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"), ik):
+            for name, q in zip(IK_JOINTS, ik):
                 self.data.ctrl[self._ctrl_index[name]] = q
             if self.robot.gripper:
                 g = self.robot.gripper
@@ -457,6 +467,10 @@ class PlatformEnv:
         a = self.validate_action(action)
         self._last_action = a.tolist()
         self._apply(a)
+        return self.advance()
+
+    def advance(self):
+        """Advance one control interval with the existing actuator targets."""
         t_start = self.episode_time()
         t_end = t_start + self.scheduler.control_period
         events = []

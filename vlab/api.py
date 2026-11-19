@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import parse_qs
 
 import mujoco
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -17,7 +17,10 @@ from pydantic import BaseModel
 import gymnasium
 
 from . import sessions as sess_mod
+from .binding_guide import guide_download, load_guide_config, project_binding_guide
+from .compat import robot_bindings
 from .engine import SCHEMA_VERSION, UnsupportedMode
+from .provider_settings import ProviderSettings, register_provider_settings_api
 from .schema import ProjectConfig
 from .store import ConfigStore, validate_config
 from .scene_assets import valid_id, scene_asset_dir, load_scene, contained_file
@@ -33,6 +36,7 @@ class CreateSessionBody(BaseModel):
     project: str = "default"
     robot_id: str | None = None
     controller_id: str | None = None
+    raw_policy_cameras: bool = False
 
 
 class AcquireBody(BaseModel):
@@ -52,6 +56,7 @@ class PolicyStepBody(TokenBody):
     model_id: str = "hackathon_vla_bc"
     steps: int = 1
     instruction: str | None = None  # language input for VLA policies; ignored by fixed-action models
+    start: bool = False  # start a new policy run from the current simulation state
 
 
 class ActionBody(BaseModel):
@@ -161,6 +166,8 @@ class So100SetupBody(BaseModel):
 
 def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     app = FastAPI(title="VLA Lab Platform", version=SCHEMA_VERSION)
+    provider_settings = ProviderSettings(lab_root)
+    register_provider_settings_api(app, provider_settings)
     store = ConfigStore(lab_root / "projects")
     manager = sess_mod.SessionManager()
     scene_lock = threading.Lock()
@@ -268,18 +275,15 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
 
     # -- capabilities & config ---------------------------------------------
     @app.get("/api/v1/capabilities")
-    def capabilities():
-        cfg = store.load("default")
-        from .engine import PlatformEnv
+    def capabilities(project: str = "default"):
+        cfg = store.load(project)
         robots = []
         for r in cfg.robots:
-            has5r = {"waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"} <= {j.name for j in r.joints}
-            ctrl = next((c.id for c in cfg.controllers
-                         if (c.mode == "cartesian_delta_ik") == has5r), cfg.controllers[0].id)
-            env = PlatformEnv(cfg, lab_root, robot_id=r.id, controller_id=ctrl)
+            bindings = robot_bindings(cfg, r)
+            modes = dict.fromkeys(controller.mode for controller in cfg.controllers
+                                  if controller.id in bindings["controller_ids"])
             robots.append({"id": r.id, "joints": [j.name for j in r.joints if j.type != "fixed"],
-                           "end_effector": r.end_effector, "supported_modes": env.supported_modes()})
-            env.close()
+                           "end_effector": r.end_effector, "supported_modes": list(modes), **bindings})
         return {"schema_version": SCHEMA_VERSION, "physics_backend": "mujoco",
                 "mujoco_version": mujoco.__version__, "gymnasium_version": gymnasium.__version__,
                 "robots": robots, "controllers": [c.model_dump() for c in cfg.controllers],
@@ -320,10 +324,29 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
     def config_version(version: int, project: str = "default"):
         return store.load_version(project, version).model_dump()
 
+    @app.get("/api/v1/projects/{pid}/binding-guide", response_class=Response,
+             responses={200: {"content": {"text/markdown": {}}}})
+    def download_project_binding_guide(pid: str, version: int | None = Query(default=None, ge=1)):
+        try:
+            valid_id(pid)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        try:
+            cfg = load_guide_config(store, pid, version)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "Project version not found") from exc
+        return guide_download(project_binding_guide(cfg), f"{pid}-v{cfg.version}-binding.md")
+
     # -- sessions -----------------------------------------------------------
     @app.post("/api/v1/sessions")
     def create_session(body: CreateSessionBody):
         cfg = store.load(body.project)
+        if body.raw_policy_cameras and cfg.scene.sensor_renderer == "hybrid":
+            # The Gaussian layer is view-only. Keep task objects and physics
+            # while providing the raw front and wrist views used for training.
+            cfg = cfg.model_copy(update={"scene": cfg.scene.model_copy(update={
+                "sensor_renderer": "mujoco", "environment": None,
+            })})
         s = manager.create(cfg, lab_root, body.robot_id, body.controller_id)
         return {"id": s.id, "robot": s.env.robot.id, "controller": s.env.controller.id,
                 "config_version": cfg.version, "epoch": s.epoch,
@@ -381,11 +404,13 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         s = _session(sid)
         try:
             return s.policy(body.token, model_id=body.model_id, epoch=body.epoch, steps=body.steps,
-                            instruction=body.instruction)
+                            instruction=body.instruction, start=body.start)
         except FileNotFoundError as exc:
             raise HTTPException(404, str(exc))
         except ValueError as exc:
             raise HTTPException(400, str(exc))
+        except RuntimeError as exc:
+            raise HTTPException(503, f"Policy inference failed: {exc}") from exc
 
     @app.get("/api/v1/sessions/{sid}/result")
     def result(sid: str):
@@ -477,8 +502,7 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
 
     # -- background jobs / library / datasets / deployments ------------------
     from .jobs import JobManager
-    from .aux_model import AuxModel
-    jobs = JobManager(lab_root)
+    jobs = JobManager(lab_root, lux3d_key_provider=provider_settings.lux3d_key)
 
     @app.post("/api/v1/jobs")
     def create_job(body: JobBody):
@@ -516,9 +540,23 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
             cur = d / "current.json"
             if cur.is_file():
                 cfg = json.loads(cur.read_text(encoding="utf-8"))
-                out.append({"id": d.name, "version": cfg.get("version"),
-                            "robots": [r["id"] for r in cfg.get("robots", [])],
-                            "task": cfg.get("task", {}).get("id")})
+                task = cfg.get("task", {})
+                scene = cfg.get("scene", {})
+                environment = scene.get("environment") or {}
+                out.append({
+                    "id": d.name,
+                    "version": cfg.get("version"),
+                    "robots": [r["id"] for r in cfg.get("robots", [])],
+                    "task": task.get("id"),
+                    "summary": {
+                        "instruction": task.get("instruction"),
+                        "task_asset": task.get("asset"),
+                        "sensor_ids": [s["id"] for s in cfg.get("sensors", [])],
+                        "sensor_renderer": scene.get("sensor_renderer", "mujoco"),
+                        "environment_id": environment.get("asset_id"),
+                        "scene_asset_count": len(scene.get("asset_nodes", [])),
+                    },
+                })
         return {"projects": out}
 
     @app.get("/api/v1/datasets")
@@ -905,45 +943,45 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
         return store.save(cfg).model_dump()
 
     @app.get("/api/v1/compat")
-    def compat_check(robot_id: str | None = None, model: str = "state", project: str = "default"):
+    def compat_check(robot_id: str | None = None, model: str = "state", project: str = "default",
+                     controller_id: str | None = None):
         from .compat import check_contract
         cfg = store.load(project)
         base = {"joint_names": ["waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"],
                 "action_mode": "cartesian_delta_ik", "action_dim": 4,
                 "action_names": ["dx", "dy", "dz", "grip"], "fps": 20.0,
-                "camera_keys": ["front", "wrist"], "privileged": False}
+                "camera_keys": [], "privileged": False}
         if model == "priv":
             base["privileged"] = True
         elif model == "visual":
             base["camera_keys"] = ["front"]
         elif model != "state":
             raise HTTPException(400, "model must be state|priv|visual")
-        return check_contract(base, cfg, robot_id)
+        return check_contract(base, cfg, robot_id, controller_id)
 
     @app.post("/api/v1/compat")
     def compat_contract(body: dict):
         from .compat import check_contract
         cfg = (ProjectConfig.model_validate(body["config"]) if "config" in body
                else store.load(body.get("project", "default")))
-        return check_contract(body["contract"], cfg, body.get("robot_id"))
+        return check_contract(body["contract"], cfg, body.get("robot_id"), body.get("controller_id"))
 
-    from .world_provider import GenerationJobStore
-    gen_store = GenerationJobStore(lab_root / "datasets" / "generation_jobs", lab_root=lab_root)
+    from .world_provider import GenerationJobStore, WorldProvider
+    gen_store = GenerationJobStore(lab_root / "datasets" / "generation_jobs",
+                                   provider=WorldProvider(key_provider=provider_settings.world_key), lab_root=lab_root)
 
     from .generation.api import register_generation_api
-    generation_ctx = register_generation_api(app, lab_root, store=store, world_store=gen_store,
-                                             commit_scene=_commit_scene)
+    register_generation_api(app, lab_root, store=store, world_store=gen_store,
+                            commit_scene=_commit_scene, provider_settings=provider_settings)
 
     @app.get("/api/v1/lux3d/status")
     def lux3d_status():
-        key = os.environ.get("AHOLO_API_KEY") or os.environ.get("LUX3D_CN_API_KEY") or os.environ.get("LUX3D_API_KEY")
-        return {"provider": "lux3d", "configured": bool(key),
-                "note": "set AHOLO_API_KEY in the backend environment to enable single-asset generation"}
+        return {"provider": "lux3d", "configured": bool(provider_settings.lux3d_key()),
+                "note": "在设置页配置 Aholo API Key 以启用单体生成。"}
 
     @app.post("/api/v1/lux3d/generate")
     def lux3d_generate(body: Lux3dBody):
-        key = os.environ.get("AHOLO_API_KEY") or os.environ.get("LUX3D_CN_API_KEY") or os.environ.get("LUX3D_API_KEY")
-        if not key:
+        if not provider_settings.lux3d_key():
             raise HTTPException(409, "AHOLO_API_KEY not configured; object generation is unavailable (local import still works)")
         slug = body.name.strip().lower().replace(" ", "-")
         try:
@@ -957,9 +995,9 @@ def create_app(lab_root: Path = LAB_ROOT) -> FastAPI:
 
     @app.get("/api/v1/generation-jobs")
     def generation_status():
-        return {"provider": "aholo-world", "aux": AuxModel().status(),
+        return {"provider": "aholo-world", "aux": provider_settings.planner().status(),
                 "configured": gen_store.provider.configured(),
-                "note": "set AHOLO_API_KEY / AUX_MODEL_* in the backend environment to enable live generation",
+                "note": "在设置页配置生成服务和辅助模型。",
                 "jobs": gen_store.list()}
 
     @app.post("/api/v1/generation-jobs")

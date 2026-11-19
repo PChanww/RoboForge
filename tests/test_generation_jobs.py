@@ -7,6 +7,7 @@ double-confirm idempotency, frozen binding, submit_unknown and node retry.
 """
 import json
 import sys
+import time
 from pathlib import Path
 
 LAB = Path(__file__).resolve().parents[1]
@@ -188,9 +189,15 @@ def test_api_confirm_unconfigured_is_honest(tmp_path, monkeypatch):
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["binding"]["provider"] == "lux3d"
-        assert body["job"]["state"] == "unconfigured"  # no key -> not a fake success
-        tasks = c.get(f"/api/v1/generation/sessions/{sid}/tasks").json()
-        assert len(tasks["tasks"]) == 1
+        deadline = time.monotonic() + 2
+        while True:
+            tasks = c.get(f"/api/v1/generation/sessions/{sid}/tasks").json()["tasks"]
+            assert len(tasks) == 1
+            state = tasks[0]["state"]
+            if state != "submitting" or time.monotonic() >= deadline:
+                break
+            time.sleep(0.02)
+        assert state == "unconfigured", tasks[0]
         r2 = c.post(f"/api/v1/generation/sessions/{sid}/confirm", json={"client_request_id": "api-1"})
         assert r2.json()["job"]["id"] == body["job"]["id"]
 

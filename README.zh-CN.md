@@ -8,6 +8,8 @@
 
 当前物理后端为 MuJoCo，编辑器采用 React + React Three Fiber，数据转换与学习脚本对接 LeRobot 和 PyTorch。
 
+当前内置任务为双指夹爪桌面抓放。五轴机械臂与三轴龙门各自使用匹配的控制器。资产、机器人、传感器和示范采集的适用范围见[平台支持范围](docs/PLATFORM_SCOPE.zh-CN.md)。
+
 ## 当前能力
 
 - **项目版本管理。** 使用带 `schema_version` 的配置保存连杆树、关节、执行器、相机、控制器和任务。保存产生新版本，在重建会话时应用。
@@ -61,6 +63,20 @@ python -m uvicorn vlab.api:app --host 127.0.0.1 --port 8767
 
 核心依赖覆盖仿真、API 和 API 测试。LeRobot/PyTorch 训练、资产生成和 MP4 回放有下文说明的额外依赖。
 
+### 配置在线服务
+
+在后端所在电脑通过 `localhost` 或 `127.0.0.1` 打开「设置 → 外部服务」。Aholo 配置填写 API Key，辅助 LLM 配置填写 OpenAI 兼容的 Base URL、API Key 和模型 ID。可先测试再保存。Aholo 测试查询任务列表，辅助 LLM 测试发送一条短文本。保存后，新请求立即使用新配置。已有 Key 会显示为「已设置」，输入留空时会保留原值。
+
+网页版配置保存在后端项目目录的 `.env.providers.json`，Git 忽略该文件。网页保存的字段优先，环境变量提供其余字段的默认值。在线 Lux3D 和 World 仍需要各自的 SDK。
+
+### 测试自训多物体 VLA
+
+从项目列表打开任意兼容项目的仿真，在通用工具栏展开「自训 VLA 测试」并输入指令。后端检查目标物体和入托盘动作，通过后用输入框的原文从当前仿真状态运行。遇到不支持的指令，仿真继续使用当前控制目标推进。要重开场景时，单独点击「重置」。
+
+首次在 Windows 上搭建双物体演示场景时，运行 `./start_demo.ps1` 生成 `hackathon_demo` 项目。把自训模型目录中的 `config.json`、`so100_stats.json` 和 `model.safetensors` 放入 `datasets/models/so100_smolvla_omni/`。
+
+模型输入为前视和腕部画面、关节和末端状态及任务指令，输出为三个末端位移增量和一个夹爪控制通道。测试会话使用 MuJoCo 双相机，沿用项目的物体和碰撞配置。
+
 ## 工程结构
 
 ```text
@@ -88,6 +104,8 @@ evidence/            历史龙门试验材料
 ## 平台 API
 
 当前后端使用 **8767** 端口。启动后可在 [http://127.0.0.1:8767/docs](http://127.0.0.1:8767/docs) 查看交互式接口定义。
+
+已有模型接入、关节与相机映射、动作契约及最小客户端示例见[模型接入与资产绑定指南](docs/MODEL_INTEGRATION.zh-CN.md)。
 
 | 方法与路径 | 用途 |
 | --- | --- |
@@ -183,7 +201,7 @@ npm run build
 
 ## 场景与视觉训练
 
-可选 World SDK：`python -m pip install -r requirements-world.txt`，在后端环境配置 `AHOLO_API_KEY`。资产中心支持场景导入、生成和显式查询任务；成功下载后登记场景版本。高斯资产仍仅供预览，尚不支持训练渲染。
+可选 World SDK：`python -m pip install -r requirements-world.txt`，在后端环境配置 `AHOLO_API_KEY`。资产中心支持场景导入、生成和显式查询任务，成功下载后登记场景版本。3DGS 可用于固定前视的 hybrid 视觉合成。接触由桌面和独立代理提供，双相机采集使用 MuJoCo 渲染。
 
 网格导入会实际应用单位比例；物理使用需确认尺寸，并保留默认桌面或提供碰撞代理。仿真页按路由加载对应项目。视觉采集、转换、训练和评估可选择项目、数据集与模型，作业保存配置快照；转换不会删除已有数据集。新模型记录输入/动作契约，旧模型需通过 CLI 明确选择历史契约假设。
 
@@ -195,8 +213,7 @@ npm run build
 
 - 语言模型只理解与建议，程序校验、编排、落地。估计的质量/摩擦/尺度保持 `model_inferred/unverified`，
   不会变成"已测量"。未知尺寸 → 未标定视觉资产，处理前不绑定物理。
-- 未配置 `AUX_MODEL_BASE_URL`/`AUX_MODEL_API_KEY` 时对话显示 `waiting_for_configuration`；表单/JSON/本地导入
-  仍可用，不用模板冒充模型。凭据仅后端环境读取。
+- 辅助模型需要配置服务地址和凭据。对话在缺少配置时显示 `waiting_for_configuration`，表单、JSON 与本地导入仍可使用。后端负责使用提供方凭据。
 - 两种场景模式：`composed_scene`（参数化工作台+显式静态代理+可操作对象，无需 World/标定）与
   `background_scene`（World 外观+显式代理；高斯需受限固定前视 `hybrid`）。远程生成成功 ≠ 已导入 ≠ 可训练。
 - API 位于 `/api/v1/generation/*` 与 `/api/v1/scene-recipes/*`；页面：生成工作台、任务详情、RecipePanel

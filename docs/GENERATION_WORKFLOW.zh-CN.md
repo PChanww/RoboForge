@@ -9,7 +9,7 @@
 
 ```
 用户原话(数据) ──> GenerationSession(持久化, revision)
-      │  对话澄清(可选, 需 AUX_MODEL_*) 或 直接表单/JSON(跳过对话)
+      │  对话澄清(可选, 需配置辅助模型) 或 直接表单/JSON(跳过对话)
       ▼
   AssetSpec + PhysicsSpec(字段级 provenance: source/confirmation/verification)
       ▼
@@ -32,7 +32,7 @@
 - `FieldProvenance`：`source` ∈ user_explicit/project_config/measured/model_inferred/default/provider_predicted；
   `confirmation` ∈ unconfirmed/accepted；`verification` ∈ unverified/validated/measured。
   区分"用户没说"（default/unconfirmed）与"用户接受默认"（default/accepted）。
-- `AssetSpec`：kind ∈ task_object/static_prop/robot_visual/environment_splat（environment_mesh 保留但在线不支持）；
+- `AssetSpec`：kind ∈ task_object/static_prop/robot_visual/environment_splat/environment_mesh；
   role ∈ visual_only/static/dynamic；尺寸以米计并带未知标记。未知尺寸 → 未标定视觉资产，标定前不绑定物理。
 - `PhysicsSpec` 与 AssetSpec 分离；质量/摩擦独立 provenance。
 - `SceneRecipe`：task_asset_ref、background_ref、colliders（显式代理）、asset_nodes、layout_constraints、
@@ -44,9 +44,9 @@
 
 - 规划器仅输出 JSON（无执行代码/工具调用）；用户/参考文本视为数据（注入防御）；保留已确认硬约束；
   不承诺生成器满足尺寸/拓扑/关节。注入真实能力表 `capability_registry`。
-- 未配置 `AUX_MODEL_BASE_URL/AUX_MODEL_API_KEY` 时显示 `waiting_for_configuration`，
+- 未配置辅助模型服务时显示 `waiting_for_configuration`，
   表单/JSON/本地导入仍可用；**不用模板回复冒充模型**。一次受控 JSON 修复后报错并转人工编辑。
-- 凭据仅后端环境读取；不在浏览器、消息历史、导出配方、报错堆栈中返回密钥；模型输出不成为路径/shell 字符串。
+- 后端负责提供方凭据的读取与使用，模型建议由结构化字段接收和校验。
 - 编译器确定性、版本化；zh↔en 数值/否定一致；载荷排除 mass_kg/friction/joint_limits/collision_proxies/seed/layout/urdf/negative_prompt。
 
 ## 4. 任务与恢复
@@ -79,6 +79,7 @@
 | POST /generation/sessions/{id}/branch | 显式新分支 |
 | POST /generation/sessions/{id}/confirm | 确认生成（幂等/恢复） |
 | GET /generation/sessions/{id}/tasks | 任务列表 |
+| GET /generation/sessions/{id}/tasks/{jid}/binding-guide | 入库后下载资产绑定指南（Markdown） |
 | POST .../tasks/{jid}/poll · /retry | 轮询 / 节点级重试 |
 | POST /generation/sessions/{id}/recipe | 由会话组装 SceneRecipe |
 | GET /scene-recipes[/{id}] | 配方列表/读取 |
@@ -92,6 +93,7 @@
 - 资产库 / 生成工作台（对话 + 可编辑规格 + 编译预览；无 LLM 时显示规格预览，不放假 3D 画布）/
   生成任务详情 / 场景编辑器（3D 主视图；全景标"全景预览"，不做假高斯 3D 编辑）。
 - 工作台底部 RecipePanel：模式/任务 ref/渲染器/默认桌/碰撞代理 JSON/目标项目 → 创建并校验 → 应用（原子）→ 读回 + 进入仿真。
+- 已入库的任务可下载资产绑定指南。应用配方后可下载对应项目版本的指南，查看关节、相机和动作顺序。详见[模型接入与资产绑定指南](MODEL_INTEGRATION.zh-CN.md)。
 
 ## 8. 本轮真实验证（摘要）
 
@@ -107,10 +109,8 @@
 
 详见 [ROUND4_GENERATION_REPORT.zh-CN.md](ROUND4_GENERATION_REPORT.zh-CN.md)。
 
-## 9. 明确不支持 / 限制
+## 9. 资产与运行范围
 
-- environment_mesh 在线生成保留未实现；SDK part_split/auto_rig 仅未来研究。
-- 六轴臂 → robot_visual 路线 + 清单，**不是**物理机器人。
-- hybrid 仅 static_background_overlay 固定 front；无 wrist/运动相机；高斯全景预览 ≠ 3D 编辑。
-- 无自动凸分解/碰撞提取；无 sim2real/数字孪生宣称；VisualBC 无语言输入。
-- 未配置 LLM 时对话不可用（waiting_for_configuration），不冒充。
+- Lux3D 支持环境网格导入路径，满足尺寸条件时可配置组合盒代理。3DGS 背景使用单独的物理代理，hybrid 合成限世界固定的 `front`。
+- 机器人外观可以进入拆件和连杆装配。运行还需要匹配的关节、执行器、相机和控制器配置。当前桌面任务与示范专家的适用范围见[平台支持范围](PLATFORM_SCOPE.zh-CN.md)。
+- 对话入口需要辅助模型配置，表单、JSON 和本地导入可直接使用。

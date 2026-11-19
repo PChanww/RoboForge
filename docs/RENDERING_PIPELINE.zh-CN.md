@@ -5,7 +5,7 @@
 - **物理唯一真值**：MuJoCo 推进动力学；任何渲染只消费快照，不自行运行机器人动力学。
 - **MujocoSensorRenderer（默认）**：现有 `engine._render_camera` 路径，场景网格进 MJCF 视觉 geom，进入 `observation.images`。
 - **HybridSensorRenderer（受限模式）**：3DGS 环境作背景 + MuJoCo 机器人/杯/托盘分割前景合成。front 相机可用；wrist 明确 `render_unavailable`。实现：`vlab/rendering/hybrid.py` + `vlab/splat_render.py`（CPU 高斯光栅化，numpy）。
-- **spark 试验**：`render-service/`（Spark 2.4.0 + Three 0.180.0 + Playwright）已建立，Spark 在内置浏览器中成功加载真实 `scene.ply`（199747 高斯，`window.__ready`），但**未见可见高斯输出**；Playwright 自带 Chromium 下载被网络中断、系统 Edge 无头在 Playwright 下启动即退出。浏览器路线未作为交付依据，保留源码与发现。
+- **浏览器 Spark 试验**：`render-service/` 用真实高斯 PLY 测试浏览器显示，预热条件和验证截图见下文。平台传感器使用 MuJoCo 或固定前视 hybrid 路径。
 
 ## 坐标与相机
 

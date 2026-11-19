@@ -35,6 +35,8 @@ def capture_snapshot(env, capture_time, request_id=None, session_id=None):
                                       "xmat": _ro(data.xmat[cup].reshape(3, 3))})
     cams = {}
     for s in env.config.sensors:
+        if s.parent != "world" and all(link.name != s.parent for link in env.robot.links):
+            continue
         cid = mdl.camera(s.id).id
         pos = _ro(data.cam_xpos[cid])
         mat = _ro(data.cam_xmat[cid].reshape(3, 3))

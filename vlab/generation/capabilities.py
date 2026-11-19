@@ -91,10 +91,11 @@ def _configured(env_keys: list[str]) -> bool:
     return any(bool(os.environ.get(k)) for k in env_keys)
 
 
-def capability_registry(aux_status: dict | None = None) -> dict:
+def capability_registry(aux_status: dict | None = None, configured: dict[str, bool] | None = None) -> dict:
     providers = {}
     for pid, p in PROVIDERS.items():
-        providers[pid] = {**p, "configured": _configured(p["env_keys"]) if p["env_keys"] else True}
+        active = _configured(p["env_keys"]) if p["env_keys"] else True
+        providers[pid] = {**p, "configured": (configured or {}).get(pid, active)}
     return {
         "registry_version": REGISTRY_VERSION,
         "providers": providers,

@@ -79,6 +79,7 @@ class Judge:
         body_name: str = "cup",
         geom_prefix: str = "cup_contact",
         freejoint_name: str = "cup_free",
+        pad_geoms=("left_pad", "right_pad"),
     ):
         self.model, self.data, self.task = model, data, task
         self.radius, self.height = radius, height
@@ -106,7 +107,9 @@ class Judge:
         self.tray_geom = matched[0]
         self.tray_half = _tray_half(task)
         self.cup_dofadr = int(model.joint(freejoint_name).dofadr[0])
-        self.pads = {model.geom(n).id for n in ("left_pad", "right_pad")}
+        if len(set(pad_geoms)) != 2:
+            raise ValueError("the tabletop grasping task requires two different contact pad geoms")
+        self.pads = {model.geom(name).id for name in pad_geoms}
         self.start_xyz = data.xpos[self.cup].copy()
         self.reset()
 

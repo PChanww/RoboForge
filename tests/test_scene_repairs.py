@@ -65,8 +65,9 @@ class Repairs(unittest.TestCase):
             "splats": {"urls": {"plyPath": "https://example.com/scene.ply"}},
             "semanticsMetadata": {"upAxis": "Z"}}})
         provider = WorldProvider()
-        provider._client = SimpleNamespace(generations=SimpleNamespace(create=create),
-                    reconstructions=SimpleNamespace(create=reconstruct), retrieve=retrieve)
+        sdk = SimpleNamespace(generations=SimpleNamespace(create=create),
+                              reconstructions=SimpleNamespace(create=reconstruct), retrieve=retrieve)
+        self.enterContext(patch.object(provider, "_sdk", return_value=sdk))
         self.assertEqual(provider.submit_generation("room", "https://example.com/ref.png"), "real-shape-id")
         self.assertEqual(create.call_args.kwargs["resources"], [{"url": "https://example.com/ref.png", "type": "image"}])
         self.assertEqual(provider.submit_reconstruction([{"url": "https://example.com/a.mp4", "type": "video"}]), "recon-id")

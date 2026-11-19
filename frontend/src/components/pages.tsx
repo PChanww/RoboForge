@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { api } from '../api'
-import { Button, Section } from './ui'
+import { api, type ProviderConnection, type ProviderSettingsSummary } from '../api'
+import { Button, Field, Section } from './ui'
 import SceneCanvas from './SceneCanvas'
 
 function useFetch<T>(fn: () => Promise<T>, deps: any[] = []) {
@@ -435,6 +435,7 @@ export function RobotEditPage() {
         </label>
         <Button size="sm" variant="outline" onClick={validate}>校验</Button>
         <Button size="sm" disabled={busy} onClick={save}>保存新版本</Button>
+        <Button size="sm" variant="outline" asChild><a href={api.robotUrdfUrl(project, r.id)} download>导出已保存 URDF</a></Button>
       </div>
       <div className="flex gap-2 mb-2 text-xs">
         {robots.map((x: any) => (
@@ -542,23 +543,26 @@ export function DatasetsPage() {
     } catch (e: any) { setMsg(e.message) }
   }
   return (
-    <div className="p-4">
-      <h2 className="text-lg text-ink mb-2">数据集</h2>
-      <div className="flex gap-2 text-xs mb-3">
+    <div className="workspace-page">
+      <header className="workspace-page-heading experiment-heading">
+        <div><h1>数据集</h1><p>检查采集结果、预览相机画面或转换为 LeRobot 格式。</p></div>
+        <Link className="workspace-cta workspace-cta--primary" to="/collect">前往数据采集 →</Link>
+      </header>
+      <div className="flex flex-wrap gap-2 text-xs mb-3">
         <label>项目 <select value={project} onChange={e => setProject(e.target.value)}>{projects.data?.projects.map(p => <option key={p.id}>{p.id}</option>)}</select></label>
         <label>采集 ID <input value={collection} onChange={e => setCollection(e.target.value)} /></label>
         <label>转换后数据集 ID <input value={dataset} onChange={e => setDataset(e.target.value)} /></label>
       </div>
-      <div className="flex gap-2 mb-3">
+      <div className="flex flex-wrap items-center gap-2 mb-3">
         <Button onClick={() => start('collect')}>采集（伺服专家）</Button>
         <Button variant="outline" onClick={() => start('convert')}>转换 LeRobot</Button>
-        <span className="text-xs text-muted">转换包含实际回读验证；使用新 ID，避免覆盖已有数据。</span>
+        <span className="text-xs text-muted">转换时请使用新的数据集 ID。</span>
       </div>
       {msg && <div className="text-xs mb-3">{msg}</div>}
-      <div className="grid grid-cols-2 gap-3 mb-4">
+      <div className="workspace-card-grid mb-4">
         {(data?.datasets || []).map((d) => (
-          <Link key={d.id} to={`/datasets/${d.id}`} className="border border-edge rounded p-3 bg-panel2 hover:border-accent">
-            <div className="text-accent text-sm">{d.id} <span className="text-muted text-xs">{d.kind}</span></div>
+          <Link key={d.id} to={`/datasets/${encodeURIComponent(d.id)}`} className="workspace-card">
+            <div className="text-accent text-sm break-all">{d.collection_id ?? d.id} <span className="text-muted text-xs">{d.kind === 'lerobot' ? 'LeRobot' : 'NPZ'}</span></div>
             <div className="text-xs text-muted">{d.episodes} episodes · {d.frames} 帧 · 成功 {d.successes ?? '--'}</div>
           </Link>
         ))}
@@ -570,14 +574,63 @@ export function DatasetsPage() {
 
 export function DatasetDetail() {
   const { datasetId } = useParams()
-  const { data } = useFetch(() => api.dataset(datasetId || 'staging'), [datasetId])
+  return <DatasetInspector key={datasetId} datasetId={datasetId || 'staging'} />
+}
+
+function DatasetInspector({ datasetId }: { datasetId: string }) {
+  const { data, err } = useFetch(() => api.dataset(datasetId), [datasetId])
+  const [selection, setSelection] = useState<number | null>(null)
+  const title = datasetId.replace(/^collection__/, '')
+  const episodes: { index: number; frames: number }[] = Array.isArray(data?.episodes) ? data.episodes : []
+  const episode = selection ?? episodes[0]?.index
+  const episodeCount = data?.summary?.episodes ?? data?.total_episodes
+  const frameCount = data?.summary?.frames ?? data?.total_frames
+
   return (
-    <div className="p-4">
-      <Link to="/datasets" className="text-xs text-accent">← 数据集</Link>
-      <h2 className="text-lg text-ink my-2">{datasetId}</h2>
-      <pre className="text-[11px] text-muted bg-panel2 border border-edge rounded p-3 overflow-auto max-h-[60vh]">
-        {JSON.stringify(data, null, 1)}
-      </pre>
+    <section className="workspace-page">
+      <Link to="/datasets" className="projects-text-link">← 返回数据集</Link>
+      <header className="workspace-page-heading experiment-heading mt-3">
+        <div className="min-w-0">
+          <h1 className="break-all">{title}</h1>
+          {data && <p>{[episodeCount != null ? `${episodeCount} 条示范` : null, frameCount != null ? `${frameCount} 帧` : null,
+            Array.isArray(data.cameras) ? data.cameras.join(' / ') : null].filter(Boolean).join(' · ')}</p>}
+        </div>
+        {data && <a className="workspace-cta workspace-cta--quiet" href={`/api/v1/datasets/${encodeURIComponent(datasetId)}`} download={`${title}.json`}>下载清单</a>}
+      </header>
+      {!data && <p className="workspace-notice" role="status">{err ? `数据集加载失败 · ${err}` : '正在读取数据集…'}</p>}
+      {episode != null && <section className="projects-panel mb-4">
+        <div className="projects-panel__head">
+          <h2>相机帧预览</h2>
+          <label className="text-xs text-muted">示范
+            <select className="ml-2 !w-auto" value={episode} onChange={event => setSelection(Number(event.target.value))}>
+              {episodes.map(item => <option key={item.index} value={item.index}>第 {item.index + 1} 条 · {item.frames} 帧</option>)}
+            </select>
+          </label>
+        </div>
+        <DatasetFrames key={episode} datasetId={datasetId} episode={episode} />
+      </section>}
+      {data && <details className="projects-panel">
+        <summary className="cursor-pointer text-sm">原始清单</summary>
+        <pre className="text-[11px] text-muted mt-3 overflow-auto max-h-[60vh]">{JSON.stringify(data, null, 2)}</pre>
+      </details>}
+    </section>
+  )
+}
+
+function DatasetFrames({ datasetId, episode }: { datasetId: string; episode: number }) {
+  const { data, err } = useFetch(() => api.datasetPreview(datasetId, episode), [datasetId, episode])
+  if (!data?.frames.length) return <p className="workspace-notice" role="status">{err ? '相机画面加载失败。' : data ? '这条示范没有可预览的相机画面。' : '正在读取相机画面…'}</p>
+  return (
+    <div className="grid gap-3 sm:grid-cols-3">
+      {data.frames.map(frame => <figure key={frame.index} className="min-w-0 rounded-lg border border-edge bg-panel2 p-2">
+        <figcaption className="mb-2 text-xs text-muted">{frame.label} · {frame.sim_time.toFixed(2)} s</figcaption>
+        <div className="grid gap-2">
+          {data.cameras.filter(camera => frame.images[camera]).map(camera => <div key={camera}>
+            <img className="w-full aspect-video rounded bg-panel object-contain" src={`data:image/jpeg;base64,${frame.images[camera]}`} alt={`${camera} · ${frame.label}`} />
+            <p className="mt-1 text-xs text-muted">{camera}</p>
+          </div>)}
+        </div>
+      </figure>)}
     </div>
   )
 }
@@ -996,8 +1049,68 @@ export function DeploymentsPage() {
 }
 
 export function SettingsPage() {
-  const { data } = useFetch(() => api.generationStatus(), [])
   const { data: cap } = useFetch(() => api.capabilities(), [])
+  const [settings, setSettings] = useState<ProviderSettingsSummary | null>(null)
+  const [loadError, setLoadError] = useState('')
+  const [aholoKey, setAholoKey] = useState('')
+  const [auxBaseUrl, setAuxBaseUrl] = useState('')
+  const [auxKey, setAuxKey] = useState('')
+  const [auxModel, setAuxModel] = useState('')
+  const [busy, setBusy] = useState('')
+  const [feedback, setFeedback] = useState<Partial<Record<'aholo' | 'aux', ProviderConnection[]>>>({})
+
+  useEffect(() => {
+    api.providerSettings().then((current) => {
+      setSettings(current)
+      setAuxBaseUrl(current.aux.base_url ?? '')
+      setAuxModel(current.aux.model)
+    }).catch((error: Error) => setLoadError(error.message))
+  }, [])
+
+  const apply = async (service: 'aholo' | 'aux', action: 'save' | 'test') => {
+    const update = service === 'aholo'
+      ? { aholo_api_key: aholoKey.trim() || undefined }
+      : { aux_base_url: auxBaseUrl.trim() || undefined, aux_api_key: auxKey.trim() || undefined,
+          aux_model: auxModel.trim() || undefined }
+    const label = service === 'aholo' ? 'Aholo' : '辅助 LLM'
+    setBusy(`${service}-${action}`)
+    setFeedback((previous) => ({ ...previous, [service]: [] }))
+    try {
+      if (action === 'test') {
+        const { results } = await api.testProviderSettings(service, update)
+        setFeedback((previous) => ({ ...previous, [service]: results }))
+        return
+      }
+      const saved = await api.saveProviderSettings(update)
+      setSettings(saved)
+      if (service === 'aholo') {
+        setAholoKey('')
+      } else {
+        setAuxKey('')
+        setAuxBaseUrl(saved.aux.base_url ?? '')
+        setAuxModel(saved.aux.model)
+      }
+      setFeedback((previous) => ({
+        ...previous, [service]: [{ service: label, ok: true, message: '已保存，后续请求将使用此配置。' }],
+      }))
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : '请求失败。'
+      setFeedback((previous) => ({ ...previous, [service]: [{ service: label, ok: false, message }] }))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const messages = (service: 'aholo' | 'aux') => (
+    <div className="space-y-1 mt-2 text-xs" aria-live="polite">
+      {feedback[service]?.map((entry) => (
+        <div key={entry.service} className={entry.ok ? 'text-accent' : 'text-red-400'}>
+          {entry.service} · {entry.message}
+        </div>
+      ))}
+    </div>
+  )
+
   return (
     <div className="p-4">
       <h2 className="text-lg text-ink mb-2">设置</h2>
@@ -1007,13 +1120,58 @@ export function SettingsPage() {
           <div>schema {cap?.schema_version}</div>
         </div>
       </Section>
-      <Section title="生成 / 辅助模型服务">
-        <div className="text-xs text-muted space-y-1">
-          <div>辅助模型状态：{data?.aux?.state}</div>
-          <div>base_url：{data?.aux?.base_url ?? '未配置'}（凭据仅存于后端环境，不发送到浏览器）</div>
-          <div>{data?.note}</div>
-        </div>
-      </Section>
+      <h3 className="text-sm text-ink mb-2">外部服务</h3>
+      <p className="text-xs text-muted mb-3">API Key 保存到本机后端，留空保留已有 Key。测试可使用本次填写的值，无需先保存。</p>
+      {loadError && <div className="text-xs text-red-400 mb-3" role="alert">{loadError}</div>}
+      {!settings && !loadError && <div className="text-xs text-muted">正在读取服务配置…</div>}
+      {settings && <div className="grid gap-4 lg:grid-cols-2">
+        <form autoComplete="off" className="border border-edge rounded p-3 bg-panel2"
+          onSubmit={(event) => { event.preventDefault(); void apply('aholo', 'save') }}>
+          <Section title="Aholo 3D 生成">
+            <p className="text-xs text-muted mb-3">供 Lux3D 生成物体网格和 Aholo World 生成场景背景。</p>
+            <Field label="Aholo API Key">
+              <input className="w-full" type="password" autoComplete="new-password" maxLength={4096}
+                value={aholoKey} onChange={(event) => setAholoKey(event.target.value)}
+                placeholder={settings.aholo.key_configured ? '已设置，留空保留' : '粘贴 API Key'} disabled={!!busy} />
+            </Field>
+            <div className="text-[11px] text-muted mb-3">Lux3D {settings.aholo.key_configured ? '已配置' : '待配置'} · World {settings.aholo.world_configured ? '已配置' : '待配置'}</div>
+            <div className="flex gap-2">
+              <Button type="submit" disabled={!!busy || !aholoKey.trim()}>{busy === 'aholo-save' ? '保存中…' : '保存'}</Button>
+              <Button type="button" variant="outline" disabled={!!busy} onClick={() => void apply('aholo', 'test')}>
+                {busy === 'aholo-test' ? '测试中…' : '测试连接'}
+              </Button>
+            </div>
+            {messages('aholo')}
+          </Section>
+        </form>
+        <form autoComplete="off" className="border border-edge rounded p-3 bg-panel2"
+          onSubmit={(event) => { event.preventDefault(); void apply('aux', 'save') }}>
+          <Section title="辅助 LLM">
+            <p className="text-xs text-muted mb-3">供生成工作台整理需求和规格，使用 OpenAI 兼容接口。</p>
+            <Field label="Base URL">
+              <input className="w-full" type="url" required maxLength={2048}
+                value={auxBaseUrl} onChange={(event) => setAuxBaseUrl(event.target.value)}
+                placeholder="https://provider.example/v1" disabled={!!busy} />
+            </Field>
+            <Field label="API Key">
+              <input className="w-full" type="password" autoComplete="new-password" maxLength={4096}
+                value={auxKey} onChange={(event) => setAuxKey(event.target.value)}
+                placeholder={settings.aux.key_configured ? '已设置，留空保留' : '粘贴 API Key'} disabled={!!busy} />
+            </Field>
+            <Field label="模型 ID">
+              <input className="w-full" required maxLength={256} value={auxModel}
+                onChange={(event) => setAuxModel(event.target.value)} disabled={!!busy} />
+            </Field>
+            <div className="flex gap-2">
+              <Button type="submit" disabled={!!busy}>{busy === 'aux-save' ? '保存中…' : '保存'}</Button>
+              <Button type="button" variant="outline" disabled={!!busy} onClick={() => void apply('aux', 'test')}>
+                {busy === 'aux-test' ? '测试中…' : '测试连接'}
+              </Button>
+            </div>
+            {messages('aux')}
+          </Section>
+        </form>
+      </div>}
     </div>
   )
 }

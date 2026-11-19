@@ -28,24 +28,35 @@ def _now():
 class WorldProvider:
     """Thin adapter over the official World SDK; methods mirror its documented API."""
 
-    def __init__(self):
+    def __init__(self, key_provider=None, *, timeout_ms=60000):
         self.key = os.environ.get("AHOLO_API_KEY")
         self._client = None
+        self._client_key = None
+        self._key_provider = key_provider
+        self._timeout_ms = timeout_ms
+        self._client_lock = threading.Lock()
+
+    def _key(self):
+        return self._key_provider() if self._key_provider is not None else self.key
 
     def configured(self):
-        return bool(self.key)
+        return bool(self._key())
 
     def _sdk(self):
-        if self._client is None:
-            if not self.key:
+        with self._client_lock:
+            key = self._key()
+            if not key:
                 raise NotImplementedError("Set AHOLO_API_KEY to enable World generation")
-            try:
-                from manycore.aholo_sdk_world import create_world_client
-                from manycore.aholo_sdk_core import AholoClientConfig
-            except ImportError as exc:
-                raise NotImplementedError("install manycore-aholo-sdk-world to enable online World") from exc
-            self._client = create_world_client(AholoClientConfig(api_key=self.key, region="cn"))
-        return self._client
+            if self._client is None or key != self._client_key:
+                try:
+                    from manycore.aholo_sdk_world import create_world_client
+                    from manycore.aholo_sdk_core import AholoClientConfig
+                except ImportError as exc:
+                    raise NotImplementedError("install manycore-aholo-sdk-world to enable online World") from exc
+                self._client = create_world_client(AholoClientConfig(
+                    api_key=key, region="cn", timeout_ms=self._timeout_ms))
+                self._client_key = key
+            return self._client
 
     def submit_generation(self, prompt, ref_image=None, **params):
         c = self._sdk()
@@ -296,8 +307,12 @@ class GenerationJobStore:
             jid = uuid.uuid4().hex[:12]
             job = {"id": jid, "kind": kind, "params": copy.deepcopy(params), "state": "submitting",
                    "remote_id": None, "created": _now(), "error": None}
+            if not params.get("remote_id") and not self.provider.configured():
+                job.update(state="unconfigured", error="Set AHOLO_API_KEY to enable World generation")
             self._jobs[jid] = job
             self._save()  # persist intent BEFORE remote submit (no duplicate on retry)
+        if job["state"] == "unconfigured":
+            return self.get(jid)
         if background:
             threading.Thread(target=self._submit, args=(jid,), daemon=True).start()
         else:

@@ -8,6 +8,8 @@ A configurable robotics simulation and learning workbench. Generate or import 3D
 
 RoboForge currently uses MuJoCo for physics and a React + React Three Fiber editor. Dataset conversion and learning scripts integrate with LeRobot and PyTorch.
 
+The built-in task is tabletop pick-and-place with a two-finger gripper. The five-axis arm and the prismatic gantry use different controller configurations. See the [platform scope](docs/PLATFORM_SCOPE.zh-CN.md) for asset, robot, sensor, and collection requirements.
+
 ## Current capabilities
 
 - **Versioned projects.** Persist robot link trees, joints, actuators, cameras, controllers, and tasks with a `schema_version`. Saving creates a configuration revision that is applied when a session is rebuilt.
@@ -88,6 +90,8 @@ Generated datasets and deployment bundles may be absent from a fresh checkout. S
 ## Platform API
 
 The current backend runs on port **8767**. Interactive endpoint schemas are available at [http://127.0.0.1:8767/docs](http://127.0.0.1:8767/docs) after startup.
+
+See the [model integration and asset binding guide (Chinese)](docs/MODEL_INTEGRATION.zh-CN.md) for joint and camera mappings, action contracts, and a minimal HTTP client.
 
 | Method and path | Purpose |
 | --- | --- |
@@ -183,11 +187,11 @@ npm run build
 
 ## Scenes (environment + collision)
 
-Project scenes can bind an imported/generated environment revision with an instance transform, static collision proxies, and a `use_default_table` switch (avoid duplicate tables). Environment geometry enters the MuJoCo sensor RGB (default renderer); task tray/cup stay separate dynamic objects. Import local `.glb`/`.ply` (PLY is classified by header into mesh / point cloud / 3D Gaussian), bind to a project, then collect → convert → train → evaluate on that scene. Hybrid 3DGS rendering and automatic collision extraction are not implemented and are reported as such.
+Project scenes bind an environment revision with an instance transform and a default table or explicit static collision proxies. Calibrated triangle meshes enter MuJoCo RGB observations. The tray and manipulable objects have separate collision geometry. Import local `.glb` or `.ply` and inspect the detected mesh, point-cloud, or Gaussian type before selecting how to bind it.
 
 - API: `POST /api/v1/scene-assets/import`, `GET /api/v1/scene-assets[/{id}]`, `POST /api/v1/scene-assets/{id}/validate`, `POST /api/v1/projects/{id}/bind-scene`, `POST/GET /api/v1/generation-jobs`.
 - UI: Asset center → import scene; `/scenes/:id/edit` → validate / bind to project.
-- Optional World SDK: `python -m pip install -r requirements-world.txt`; set `AHOLO_API_KEY` in the backend environment. Generation jobs are polled explicitly; successful downloads are registered as scene revisions. Gaussian assets remain preview-only.
+- Optional World SDK (`python -m pip install -r requirements-world.txt`). Set `AHOLO_API_KEY` in the backend environment. Successful downloads are registered as scene revisions. Gaussian backgrounds support fixed-front hybrid RGB compositing with separate physics proxies. Use MuJoCo RGB for the dual-camera collection path.
 - Scene imports apply `unit_scale` to mesh coordinates. Physical use requires confirmed units and either the default table or explicit collision proxies. Project routes load their own configuration and session.
 - Visual collect/train/eval jobs accept selected project/dataset/model IDs. Collection and evaluation save configuration snapshots; conversion refuses to overwrite datasets. New visual checkpoints include their input/action contract; legacy checkpoints require explicit CLI opt-in.
 - Docs: [scene pipeline](docs/SCENE_PIPELINE.zh-CN.md) · [validation record](docs/SCENE_VALIDATION.zh-CN.md).
@@ -203,8 +207,7 @@ atomic apply to a new project version → simulation / collection.
 - The LLM only understands and suggests; programs validate, orchestrate, and land. Estimated mass/friction/scale
   stay `model_inferred/unverified` and never become "measured". Unknown dimensions yield an uncalibrated visual
   asset with no physics binding until processed.
-- Without `AUX_MODEL_BASE_URL`/`AUX_MODEL_API_KEY` the chat shows `waiting_for_configuration`; form/JSON/local
-  import still work and no template reply impersonates a model. Credentials are read from the backend environment only.
+- Chat requires an auxiliary model endpoint and credential. It shows `waiting_for_configuration` until configured. Form, JSON, and local import remain available, and the backend handles provider credentials.
 - Two scene modes: `composed_scene` (parameterized workbench + explicit static proxies + manipulable object; works
   without World/calibration) and `background_scene` (World appearance + explicit proxies; gaussian requires the
   restricted fixed-front `hybrid` renderer). Remote generation success ≠ imported ≠ trainable.

@@ -1,5 +1,7 @@
 # SO-ARM100 Standalone Server Training Bundle (`so100_real_demos`)
 
+This guide targets the included dataset and its matching simulation I/O contract. Compare the configured joints, cameras, action units, and control mode with the [model integration guide](../../docs/MODEL_INTEGRATION.zh-CN.md) before using the artifacts in another project.
+
 ## Hardware & VRAM Footprint (Well below 50 GB / 3×3090 budget)
 1. **Real 450M `SmolVLA` (`SmolVLM2-500M` + Flow-Matching Action Expert, `so100_smolvla`)** — **Recommended**:
    - Inputs: Dual cameras (`front + wrist` 256×256) + 18D SO-ARM100 proprioception + natural language task prompt
@@ -27,18 +29,14 @@ After training finishes, copy the generated artifacts back into `outputs/vla-lab
 - `datasets/models/so100_smolvla/` (`config.json`, `model.safetensors`, `so100_stats.json`)
 - `datasets/reports/train_so100_smolvla.json`
 
-Once copied back, `so100_smolvla (front+wrist)` appears automatically in the RoboForge toolbar (`运行视觉策略`) for live closed-loop MuJoCo rollout.
+With the checkpoint in place, the toolbar lists `so100_smolvla (front+wrist)`. Select a project with the matching joint state, both camera streams, and four-channel Cartesian delta-IK before running a rollout.
 
 ## General (multi-task / instruction-conditioned) training
 
-The trainer now conditions on **each sample's own task instruction** (per-frame `task` from the
-LeRobot dataset) instead of one global prompt expanded to the whole batch. This is what turns the
-model from "single-task" into a general, language-conditioned VLA — provided the dataset actually
-contains **multiple distinct tasks/instructions**.
+The trainer reads each sample's task instruction from the LeRobot dataset. Different instructions in one dataset allow the model to learn from multiple demonstrated tasks. Evaluate performance on the target robot, objects, layouts, and instructions separately.
 
 - Dataset requirement: a LeRobot dataset whose `task`/instruction varies across episodes (e.g.
-  cup / canister / tray / static-prop pick-and-place). A single-task dataset still trains, but the
-  model will only follow that task.
+  cup / canister / tray / static-prop pick-and-place). A single-task dataset provides demonstrations of one task.
 - Train command (single GPU 3090):
   ```bash
   bash run_3090_smolvla.sh --dataset <multi_task_dataset> --model-out so100_smolvla_multi --steps 3000

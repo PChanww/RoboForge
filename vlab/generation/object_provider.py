@@ -28,25 +28,36 @@ def _now():
 
 
 class Lux3DProvider:
-    def __init__(self):
+    def __init__(self, key_provider=None, *, timeout_ms=60000):
         self.key = (os.environ.get("AHOLO_API_KEY") or os.environ.get("LUX3D_CN_API_KEY")
                     or os.environ.get("LUX3D_API_KEY"))
         self._client = None
+        self._client_key = None
+        self._key_provider = key_provider
+        self._timeout_ms = timeout_ms
+        self._client_lock = threading.Lock()
+
+    def _key(self):
+        return self._key_provider() if self._key_provider is not None else self.key
 
     def configured(self):
-        return bool(self.key)
+        return bool(self._key())
 
     def _sdk(self):
-        if self._client is None:
-            if not self.key:
+        with self._client_lock:
+            key = self._key()
+            if not key:
                 raise NotImplementedError("Set AHOLO_API_KEY to enable Lux3D generation")
-            try:
-                from manycore.aholo_sdk_core import AholoClientConfig
-                from manycore.aholo_sdk_lux3d import create_lux3d_client
-            except ImportError as exc:
-                raise NotImplementedError("install manycore-aholo-sdk-lux3d==1.9.0") from exc
-            self._client = create_lux3d_client(AholoClientConfig(api_key=self.key, region="cn"))
-        return self._client
+            if self._client is None or key != self._client_key:
+                try:
+                    from manycore.aholo_sdk_core import AholoClientConfig
+                    from manycore.aholo_sdk_lux3d import create_lux3d_client
+                except ImportError as exc:
+                    raise NotImplementedError("install manycore-aholo-sdk-lux3d==1.9.0") from exc
+                self._client = create_lux3d_client(AholoClientConfig(
+                    api_key=key, region="cn", timeout_ms=self._timeout_ms))
+                self._client_key = key
+            return self._client
 
     def submit(self, prompt, payload):
         c = self._sdk()
@@ -292,8 +303,12 @@ class ObjectJobStore:
                    "config_version": params.get("config_version"),
                    "created": _now(), "error": None, "retries": 0,
                    "nodes": {n: "pending" for n in NODES}}
+            if not params.get("remote_id") and not self.provider.configured():
+                job.update(state="unconfigured", error="Set AHOLO_API_KEY to enable Lux3D generation")
             self._jobs[jid] = job
             self._save()  # intent BEFORE remote submit
+        if job["state"] == "unconfigured":
+            return self.get(jid)
         if background:
             threading.Thread(target=self._submit, args=(jid,), daemon=True).start()
         else:

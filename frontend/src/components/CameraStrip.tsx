@@ -1,6 +1,19 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useStore } from '../store'
 import { cn } from './ui'
+
+function CameraImage({ jpeg, label, className }: { jpeg: string; label: string; className: string }) {
+  const src = `data:image/jpeg;base64,${jpeg}`
+  const [decoded, setDecoded] = useState(src)
+  useEffect(() => {
+    let active = true
+    const incoming = new Image()
+    incoming.src = src
+    void incoming.decode().then(() => { if (active) setDecoded(src) }).catch(() => {})
+    return () => { active = false }
+  }, [src])
+  return <img src={decoded} alt={label} decoding="async" className={className} />
+}
 
 export default function CameraStrip() {
   const obs = useStore((s) => s.observation)
@@ -27,11 +40,11 @@ export default function CameraStrip() {
                 onClick={(e) => { e.stopPropagation(); setEnlarged(s.id) }}>⤢</button>
             </div>
             <div className="flex-1 min-h-0 mx-1.5 my-1 bg-black rounded overflow-hidden flex items-center justify-center">
-              {f ? <img src={`data:image/jpeg;base64,${f.jpeg_b64}`} className="max-w-full max-h-full object-contain" />
+              {f ? <CameraImage jpeg={f.jpeg_b64} label={s.id} className="max-w-full max-h-full object-contain" />
                 : <span className="text-[10px] text-muted">{st?.state === 'waiting' ? '等待首帧…' : '无画面'}</span>}
             </div>
             <div className="px-1.5 pb-1 text-[10px] text-muted leading-tight">
-              <div>{s.resolution[0]}×{s.resolution[1]} · 配置{s.fps} / 实际{st?.actual_capture_fps ?? '--'} FPS</div>
+              <div>{s.resolution[0]}×{s.resolution[1]} · 配置{s.fps} / 仿真{st?.actual_capture_fps ?? '--'} FPS</div>
               <div>年龄 {st?.age_s != null ? `${(st.age_s * 1000).toFixed(0)}ms` : '--'} · {st?.state ?? '--'}</div>
             </div>
           </div>
@@ -44,7 +57,7 @@ export default function CameraStrip() {
               <span>相机 {enlarged}</span>
               <button className="text-muted hover:text-ink" onClick={() => setEnlarged(null)}>关闭 ✕</button>
             </div>
-            {big ? <img src={`data:image/jpeg;base64,${big.jpeg_b64}`} className="max-w-full max-h-[70vh] object-contain rounded" />
+            {big ? <CameraImage key={enlarged} jpeg={big.jpeg_b64} label={enlarged} className="max-w-full max-h-[70vh] object-contain rounded" />
               : <div className="text-muted">无画面</div>}
             <div className="text-[11px] text-muted mt-1">capture {big?.capture_time ?? '--'}s · frame {big?.frame_id ?? '--'}</div>
           </div>

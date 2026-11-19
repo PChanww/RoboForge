@@ -7,7 +7,7 @@
 - **场景资产（SceneAssetManifest）**：`assets/scenes/<asset_id>/<revision>/manifest.json`，含来源、格式、文件 SHA256、up_axis、unit_scale、calibrated、visual_asset、bbox、status。源文件保存在 `source/`，处理后网格在 `processed/visual.obj`。
 - **项目场景绑定（ProjectConfig.scene）**：`environment`（asset_id/revision + 实例 position/quaternion_xyzw/uniform_scale）、`colliders`（静态碰撞代理）、`sensor_renderer`、`use_default_table`、`work_surface_z`。
 - **环境/任务/机器人分层**：`vlab/scene_builder.environment_xml()` 生成灯光/地面/默认桌面或场景视觉网格 + 静态碰撞代理；`vlab/tasks.task_xml()` 只生成任务托盘与动态杯子；`vlab/mjcf.robot_xml()` 生成机器人。`engine._build()` 组合三者。
-- **渲染**：MVP 使用 MuJoCo `Renderer`（`sensor_renderer=mujoco`）。场景视觉网格是 MJCF 中的静态视觉 geom，因此**进入传感器 RGB**。`sensor_renderer=hybrid` 目前显式报错（未实现），不会静默回退。
+- **渲染**：MuJoCo 模式把标定的场景网格作为静态视觉几何加入传感器 RGB。Hybrid 模式支持把 3DGS 背景与 MuJoCo 前景合成到世界固定的 `front` 相机。有关时序和遮挡范围，见[渲染管线](RENDERING_PIPELINE.zh-CN.md)。
 - **数据/训练**：`vlab/collect.py` 采集（图像/状态/动作/时间戳/成功标签，含配置快照哈希）；`scripts/lerobot_writer.py` 转 LeRobot；`scripts/train_image_bc.py` 视觉 BC；`scripts/eval_image_policy.py` 经 HTTP 闭环评估。
 
 ## 2. 坐标与单位
@@ -29,21 +29,21 @@
 ## 4. 支持格式与导入
 
 - 本地导入：`.glb`（自包含）与 `.ply`。PLY 按**头部/属性**分类：三角形网格（element face）、点云（仅 vertex）、3D 高斯（`f_dc_*`/`scale_*`/`rot_*`）。
-- 网格 → 生成 `processed/visual.obj`（不按杯子缩放，保留原始尺寸）；高斯/点云 → `status=preview_only`，**不能用作物理场景**。
+- 网格导入后按指定单位生成 `processed/visual.obj`，使用其环境尺度。点云用于预览。高斯可作为 hybrid 的视觉背景，物理接触使用单独的桌面或代理。
 - 未标定（unit 未知/未勾选）→ `status=uncalibrated`，仅预览，不作为已验证物理场景。
 - 上限 256 MiB；路径/格式/自包含校验。
 
 ## 5. 操作步骤
 
 1. 资产中心 → 「导入场景(.glb/.ply)」上传 → 生成 rev1 清单与预览。
-2. 打开 `/scenes/:id/edit` → 查看来源/尺寸/包围盒/标定状态 → 「校验」→「用于项目（绑定场景）」写入项目配置（绑定 revision，关闭默认桌面避免重复桌）。
+2. 打开 `/scenes/:id/edit`，查看来源、尺寸、包围盒和标定状态。确认显式支撑代理可用后，再关闭默认桌面。校验并绑定到项目时固定资产 revision。
 3. 项目仿真 `/projects/:projectId/sim` 加载该场景；碰撞代理通过配置 `scene.colliders` 提供（box/plane/cylinder，名称/位置/旋转/全尺寸/摩擦/掩码）。
-4. 采集（采集服务用固定配置快照）→ 转换 LeRobot → 训练视觉 BC → 闭环评估。
+4. 检查项目版本、机器人、控制器和相机，再采集并转换为 LeRobot。内置专家采集使用支持固定姿态 5R 逆运动学的控制器。其它机构的示例与边界见[平台支持范围](PLATFORM_SCOPE.zh-CN.md)。
 
 ## 6. 已知限制
 
-- 3D 高斯（splat）仅格式识别与预览标记，**未实现 hybrid 渲染/遮挡合成**；训练使用 MuJoCo 渲染的场景网格。
-- 自动碰撞提取（splat-transform Voxel/collision.glb）未接入；第一版使用手工静态代理。
+- Hybrid 的范围是固定前视视觉背景合成。双相机采集使用 MuJoCo 渲染。
+- 场景编辑支持手工静态代理，部分生成网格导入路径支持组合盒。高斯背景的接触几何由独立代理设置。
 - 场景仅支持统一缩放的刚体位姿；不支持倾斜工作台/自动语义拆分。
 - 生成外观不保证可靠关节/惯量/接触或可分离对象；机器人仍由配置定义关节与物理。
 - 在线 World 生成需 `AHOLO_API_KEY` 与可选 `manycore-aholo-sdk-world`；未配置时 `unconfigured`，仅在可控 mock 下测试。

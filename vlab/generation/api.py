@@ -11,12 +11,14 @@ from pathlib import Path
 import re
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel, ValidationError
 
-from ..aux_model import AuxModel
+from ..binding_guide import asset_binding_guide, guide_download
+from ..scene_assets import valid_id
 from .capabilities import capability_registry
 from .compiler import CompileError, compile_session, spec_hash
-from .object_provider import ObjectJobStore
+from .object_provider import Lux3DProvider, ObjectJobStore
 from .orchestrator import Orchestrator
 from .planner import Planner, PlannerError, apply_reply
 from .scene_recipe import (RecipeStore, apply_mutate, build_recipe_from_session,
@@ -303,15 +305,20 @@ def _spec_has_meaningful_content(s: GenerationSession) -> bool:
     )
 
 
-def register_generation_api(app: FastAPI, lab_root: Path, store=None, world_store=None, commit_scene=None):
+def register_generation_api(app: FastAPI, lab_root: Path, store=None, world_store=None, commit_scene=None,
+                            provider_settings=None):
     sessions = SessionStore(lab_root / "datasets" / "generation_sessions")
-    planner = Planner()
-    object_store = ObjectJobStore(lab_root / "datasets" / "generation_jobs", lab_root=lab_root)
+    make_planner = provider_settings.planner if provider_settings is not None else Planner
+    provider = Lux3DProvider(key_provider=provider_settings.lux3d_key) if provider_settings is not None else None
+    object_store = ObjectJobStore(lab_root / "datasets" / "generation_jobs", provider=provider, lab_root=lab_root)
     orchestrator = Orchestrator(sessions, object_store, world_store, config_store=store)
     recipes = RecipeStore(lab_root / "datasets" / "scene_recipes")
 
-    def _registry():
-        return capability_registry(planner.status())
+    def _registry(planner=None):
+        return capability_registry((planner or make_planner()).status(), {
+            "lux3d": object_store.provider.configured(),
+            "aholo_world": world_store.provider.configured() if world_store is not None else False,
+        })
 
     def _get(sid) -> GenerationSession:
         try:
@@ -372,6 +379,10 @@ def register_generation_api(app: FastAPI, lab_root: Path, store=None, world_stor
             "user_words": body.initial_text or "",
             "provenance": prov,
         }
+        free_visual = kind_str == AssetKind.static_prop.value and role_str == AssetRole.visual_only.value
+        if (free_visual or kind_str == AssetKind.robot_visual.value) and body.initial_text:
+            spec_data["appearance"] = body.initial_text
+            prov["appearance"] = _user_prov().model_dump()
         try:
             spec = AssetSpec.model_validate(spec_data)
             phys = PhysicsSpec.model_validate({"role": spec.role.value})
@@ -380,10 +391,11 @@ def register_generation_api(app: FastAPI, lab_root: Path, store=None, world_stor
         msgs = []
         if body.initial_text:
             msgs.append(ChatMessage(role="user", content=body.initial_text, ts=_now()))
+        registry = _registry()
         s = sessions.create(
             project_id=body.project_id,
-            capability_snapshot=_registry(),
-            aux_state=planner.status()["state"],
+            capability_snapshot=registry,
+            aux_state=registry["aux_model"]["state"],
             asset_spec=spec,
             physics_spec=phys,
             messages=msgs,
@@ -406,9 +418,10 @@ def register_generation_api(app: FastAPI, lab_root: Path, store=None, world_stor
             s.messages.append(ChatMessage(role="user", content=body.content, ts=_now()))
             if not s.asset_spec.user_words:
                 s.asset_spec.user_words = body.content
+            planner = make_planner()
             if planner.configured():
                 try:
-                    reply = planner.plan(s, _registry())
+                    reply = planner.plan(s, _registry(planner))
                     warnings = apply_reply(s, reply)
                     if reply.reply_zh:
                         s.messages.append(ChatMessage(role="assistant", content=reply.reply_zh, ts=_now()))
@@ -467,9 +480,10 @@ def register_generation_api(app: FastAPI, lab_root: Path, store=None, world_stor
                 kind="text",
             ))
             open_left = any(item.status == "open" for item in s.questions)
+            planner = make_planner()
             if planner.configured():
                 try:
-                    reply = planner.plan(s, _registry())
+                    reply = planner.plan(s, _registry(planner))
                     warnings = apply_reply(s, reply)
                     if reply.reply_zh:
                         s.messages.append(ChatMessage(role="assistant", content=reply.reply_zh, ts=_now()))
@@ -560,6 +574,24 @@ def register_generation_api(app: FastAPI, lab_root: Path, store=None, world_stor
             return orchestrator.tasks(sid)
         except KeyError:
             raise HTTPException(404, "unknown generation session")
+
+    @app.get("/api/v1/generation/sessions/{sid}/tasks/{jid}/binding-guide", response_class=Response,
+             responses={200: {"content": {"text/markdown": {}}}})
+    def download_asset_binding_guide(sid: str, jid: str):
+        session = _get(sid)
+        if jid not in session.job_ids:
+            raise HTTPException(404, "job not linked to session")
+        job = object_store.get(jid) or (world_store.get(jid) if world_store is not None else None)
+        if job is None:
+            raise HTTPException(404, "job not found")
+        if job.get("state") != "succeeded" or not job.get("asset_id"):
+            raise HTTPException(409, "Asset import is not ready")
+        try:
+            filename = f"{valid_id(jid)}-binding.md"
+            guide = asset_binding_guide(lab_root, job, store)
+        except (FileNotFoundError, KeyError, ValueError) as exc:
+            raise HTTPException(404, "Registered asset manifest is unavailable") from exc
+        return guide_download(guide, filename)
 
     @app.post("/api/v1/generation/sessions/{sid}/tasks/{jid}/poll")
     def poll_task(sid: str, jid: str):
@@ -724,5 +756,5 @@ def register_generation_api(app: FastAPI, lab_root: Path, store=None, world_stor
         except Exception as exc:
             raise HTTPException(400, f"local part split failed: {exc}")
 
-    return {"sessions": sessions, "planner": planner, "registry": _registry,
+    return {"sessions": sessions, "registry": _registry,
             "objects": object_store, "orchestrator": orchestrator, "recipes": recipes}

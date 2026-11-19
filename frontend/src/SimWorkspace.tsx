@@ -18,10 +18,11 @@ function RobotSelect() {
   const config = useStore((s) => s.config)
   const active = useStore((s) => s.activeRobotId)
   const setRobot = useStore((s) => s.setRobot)
+  const locked = useStore((s) => s.running || s.busy)
   if (!config) return null
   return (
     <select className="!w-auto text-[11px] ml-2" value={active || config.robots[0].id}
-      onChange={(e) => setRobot(e.target.value)} title="活动机器人">
+      onChange={(e) => setRobot(e.target.value)} title="活动机器人" disabled={locked}>
       {config.robots.map((r) => <option key={r.id} value={r.id}>{r.id}</option>)}
     </select>
   )
@@ -30,6 +31,7 @@ function RobotSelect() {
 export default function App() {
   const { projectId = 'default' } = useParams()
   const init = useStore((s) => s.init)
+  const stopRun = useStore((s) => s.stopRun)
   const error = useStore((s) => s.error)
   const busy = useStore((s) => s.busy)
   const saved = useRef(loadLayout())
@@ -41,7 +43,10 @@ export default function App() {
   const [dockH, setDockH] = useState(saved.current.dockH ?? 148)
   const drag = useRef<null | { kind: 'right' | 'dock' | 'left'; start: number; base: number }>(null)
 
-  useEffect(() => { init(projectId) }, [init, projectId])
+  useEffect(() => {
+    init(projectId)
+    return stopRun
+  }, [init, projectId, stopRun])
   useEffect(() => {
     localStorage.setItem(LS_KEY, JSON.stringify({ leftOpen, rightOpen, dockOpen, leftW, rightW, dockH }))
   }, [leftOpen, rightOpen, dockOpen, leftW, rightW, dockH])

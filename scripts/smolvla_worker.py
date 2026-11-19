@@ -69,6 +69,9 @@ def main():
     stats = json.loads((model_dir / "so100_stats.json").read_text(encoding="utf-8"))
     proc_dir = _find_processor(model_dir, args.processor)
     dev = _select_device(args.device)
+    if dev.type != "cpu":
+        # PyTorch's CPU pool also handles model construction and weight copies.
+        torch.set_num_threads(min(4, torch.get_num_threads()))
 
     cfg = PreTrainedConfig.from_pretrained(model_dir, local_files_only=True)
     cfg.vlm_model_name = str(proc_dir)

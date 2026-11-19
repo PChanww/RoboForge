@@ -1,10 +1,21 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { Button, Field, Section } from './ui'
 
-const KINDS = ['task_object', 'static_prop', 'robot_visual', 'environment_splat', 'environment_mesh']
-const ROLES = ['dynamic', 'static', 'visual_only']
+const ASSET_TYPES = {
+  free_visual: { kind: 'static_prop', label: '自由生成 3D 外观', role: 'visual_only', example: '例如：磨砂银色机械爪，带两根可见的弧形夹指' },
+  task_object: { kind: 'task_object', label: '任务物体', role: 'dynamic', example: '例如：黄色橡胶鸭，高 6 cm' },
+  static_prop: { kind: 'static_prop', label: '静态道具', role: 'static', example: '例如：带侧壁的收纳托盘，宽 25 cm' },
+  robot_visual: { kind: 'robot_visual', label: '机械臂外观 / 部件', role: 'visual_only', example: '例如：蓝灰色五轴机械臂，底座、上臂、前臂和腕部分段清楚' },
+  environment_splat: { kind: 'environment_splat', label: '场景背景（全景 / 3DGS）', role: 'visual_only', example: '例如：光线均匀的实验室，中间留空' },
+  environment_mesh: { kind: 'environment_mesh', label: '场景网格', role: 'visual_only', example: '例如：平整的钢制工作台，宽 1 m' },
+} as const
+type AssetType = keyof typeof ASSET_TYPES
+const ASSET_CHOICES = Object.keys(ASSET_TYPES) as AssetType[]
+const ROLE_LABELS = { dynamic: '动态物体', static: '静态物体', visual_only: '仅视觉' }
+const ROLES = Object.keys(ROLE_LABELS) as (keyof typeof ROLE_LABELS)[]
+const supportsVesselFeatures = (type: AssetType) => type === 'task_object' || type === 'static_prop'
 
 function ProvTag({ p }: { p: any }) {
   if (!p) return null
@@ -30,40 +41,50 @@ export function GenerationList() {
   const [sessions, setSessions] = useState<any[]>([])
   const [cap, setCap] = useState<any>(null)
   const [text, setText] = useState('')
-  const [kind, setKind] = useState('task_object')
+  const [assetType, setAssetType] = useState<AssetType>('task_object')
+  const [creating, setCreating] = useState(false)
   const [msg, setMsg] = useState('')
   const reload = useCallback(() => { api.genSessions().then((r) => setSessions(r.sessions)).catch((e) => setMsg(e.message)) }, [])
   useEffect(() => { reload(); api.genCapabilities().then(setCap).catch(() => {}) }, [reload])
+  const choice = ASSET_TYPES[assetType]
+  const freeVisual = assetType === 'free_visual'
   const create = async () => {
+    const initialText = text.trim()
+    if (creating || (freeVisual && !initialText)) return
+    setCreating(true); setMsg('')
     try {
-      const s = await api.genCreateSession({ initial_text: text || undefined, kind })
+      const s = await api.genCreateSession({ initial_text: initialText || undefined, kind: choice.kind,
+        ...(freeVisual && { role: choice.role }) })
+      if ((freeVisual || assetType === 'robot_visual') && initialText && !s.asset_spec?.appearance) {
+        try {
+          await api.genPatchSpec(s.session_id, { expected_revision: s.revision, appearance: initialText })
+        } catch {
+          nav(`/generation/${s.session_id}`, { state: { notice: '会话已创建。请在规格编辑中保存外观描述后再生成。' } })
+          return
+        }
+      }
       nav(`/generation/${s.session_id}`)
     } catch (e: any) { setMsg(e.message) }
+    finally { setCreating(false) }
   }
   return (
-    <div className="p-4">
-      <h2 className="text-lg text-ink mb-2">生成工作台</h2>
-      <div className="text-xs text-muted mb-3">
-        对话 → 规格 → 生成 → 导入 → 组装场景 → 仿真验证。语言模型只理解与建议，程序校验、编排、落地。
-        {cap && <> 辅助模型：<span className={cap.aux_model?.configured ? 'text-accent' : 'text-yellow-300'}>
-          {cap.aux_model?.state}</span>（未配置时仍可用表单/JSON/本地导入）。</>}
-      </div>
-      {cap && <div className="text-[11px] text-muted mb-3 border border-edge rounded p-2 bg-panel2">
-        <div className="text-accent mb-1">当前支持范围</div>
-        <div>单体：Lux3D（{cap.providers?.lux3d?.configured ? '凭据已配置' : '等待 AHOLO_API_KEY'}）；背景：World 高斯（{cap.providers?.aholo_world?.configured ? '已配置' : '等待配置'}）；本地导入始终可用。</div>
-        <div>物理代理：box/cylinder/plane；不做凸分解/URDF/关节生成；part_split/auto_rig 仅未来研究。</div>
-        <div>environment_mesh 在线生成未支持；robot_visual 仅外观。{cap.render_limits?.[0]}。</div>
-      </div>}
+    <div className="workspace-page">
+      <header className="workspace-page-heading"><h1>资产生成</h1></header>
+      {cap && !cap.providers?.lux3d?.configured && !cap.providers?.aholo_world?.configured && (
+        <p className="text-xs text-muted mb-3">在线生成需要配置 Aholo。 <Link to="/settings" className="text-accent">打开设置 →</Link></p>
+      )}
       <div className="flex gap-2 items-end mb-4 flex-wrap">
-        <Field label="资产类型"><select value={kind} onChange={(e) => setKind(e.target.value)}>
-          {KINDS.map((k) => <option key={k}>{k}</option>)}</select></Field>
-        <Field label="初始需求（可留空，进入后编辑）">
-          <input className="!w-96" value={text} onChange={(e) => setText(e.target.value)}
-            placeholder="例如：蓝色无把手陶瓷杯，高 9cm" /></Field>
-        <Button onClick={create}>新建会话</Button>
+        <Field label="资产类型"><select value={assetType} onChange={(e) => setAssetType(e.target.value as AssetType)}>
+          {ASSET_CHOICES.map((type) => <option key={type} value={type}>{ASSET_TYPES[type].label}</option>)}</select></Field>
+        <Field label={freeVisual ? '描述想生成的外观' : '初始需求（选填）'}>
+          <input className="!w-full sm:!w-80" value={text} onChange={(e) => setText(e.target.value)}
+            placeholder={choice.example} /></Field>
+        <Button onClick={create} disabled={creating || (freeVisual && !text.trim())}>{creating ? '创建中…' : '新建会话'}</Button>
       </div>
+      {freeVisual && <p className="text-xs text-muted mb-3">由描述生成单件 3D 网格，可预览和配景。用于物理仿真前需另行标定和绑定。</p>}
+      {assetType === 'robot_visual' && <p className="text-xs text-muted mb-3">生成机械臂的外观网格。要在仿真里控制关节，需把部件装配到已有的关节模板。</p>}
       {msg && <div className="text-xs text-yellow-300 mb-2">{msg}</div>}
-      <Section title="已有会话（刷新/重启后保留）">
+      <Section title="已有会话">
         <table className="w-full text-xs">
           <thead><tr className="text-muted text-left"><th className="py-1">ID</th><th>状态</th><th>rev</th><th>更新</th></tr></thead>
           <tbody>{sessions.map((s) => (
@@ -81,22 +102,26 @@ export function GenerationList() {
 
 export function GenerationWorkbench() {
   const { sessionId } = useParams()
+  const { state } = useLocation()
   const [s, setS] = useState<any>(null)
   const [cap, setCap] = useState<any>(null)
-  const [msg, setMsg] = useState('')
+  const [msg, setMsg] = useState<string>(state?.notice ?? '')
   const [chat, setChat] = useState('')
   const [busy, setBusy] = useState(false)
   const [promptEdit, setPromptEdit] = useState<string | null>(null)
+  const [appearanceDraft, setAppearanceDraft] = useState<string | null>(null)
   const reload = useCallback(() => {
     if (!sessionId) return
     api.genSession(sessionId).then(setS).catch((e) => setMsg(e.message))
   }, [sessionId])
+  useEffect(() => { setAppearanceDraft(null) }, [sessionId])
   useEffect(() => { reload(); api.genCapabilities().then(setCap).catch(() => {}) }, [reload])
 
   const patch = async (fields: any) => {
     if (!s) return
-    try { setS(await api.genPatchSpec(s.session_id, { expected_revision: s.revision, ...fields })) }
+    try { setS(await api.genPatchSpec(s.session_id, { expected_revision: s.revision, ...fields })); return true }
     catch (e: any) { setMsg(e.message); reload() }
+    return false
   }
   const send = async () => {
     if (!s || !chat.trim()) return
@@ -125,14 +150,23 @@ export function GenerationWorkbench() {
 
   if (!s) return <div className="p-4 text-xs text-muted">{msg || '加载中…'}</div>
   const spec = s.asset_spec, phys = s.physics_spec
+  const kind = spec.kind as Exclude<AssetType, 'free_visual'>
+  const robotVisual = kind === 'robot_visual'
+  const background = kind === 'environment_splat'
+  const freeVisual = kind === 'static_prop' && spec.role === 'visual_only'
+  const assetType = freeVisual ? 'free_visual' : kind
+  const vesselFeatures = supportsVesselFeatures(assetType)
+  const roles = background ? ROLES.filter(role => role === 'visual_only') : robotVisual ? ROLES.filter(role => role !== 'dynamic') : ROLES
   const auxReady = cap?.aux_model?.configured
+  const editingAppearance = appearanceDraft !== null && appearanceDraft !== spec.appearance
+  const missingFreeProvider = freeVisual && cap?.providers?.lux3d?.configured === false
   return (
     <div className="p-4">
       <Link to="/generation" className="text-xs text-accent">← 生成工作台</Link>
       <h2 className="text-lg text-ink my-2">会话 {s.session_id} <span className="text-xs text-muted">rev {s.revision} · {s.state}</span></h2>
       {msg && <div className="text-xs text-yellow-300 mb-2">{msg}</div>}
-      <div className="grid grid-cols-2 gap-4">
-        <div>
+      <div className={freeVisual ? '' : 'grid md:grid-cols-2 gap-4'}>
+        {!freeVisual && <div>
           <Section title="对话澄清">
             {!auxReady && <div className="text-[11px] text-yellow-300 mb-2 border border-edge rounded p-2 bg-panel2">
               waiting_for_configuration：未配置 AUX_MODEL_BASE_URL/AUX_MODEL_API_KEY，对话规划不可用。
@@ -162,75 +196,99 @@ export function GenerationWorkbench() {
                 </div>}
               </div>))}
           </Section>}
-        </div>
+        </div>}
         <div>
-          <Section title="规格编辑（直接表单/JSON，跳过对话）">
+          <Section title={freeVisual ? '外观设置' : '规格编辑'}>
             <div className="grid grid-cols-2 gap-x-3">
-              <Field label="类型"><select value={spec.kind} onChange={(e) => patch({ kind: e.target.value })}>
-                {KINDS.map((k) => <option key={k}>{k}</option>)}</select></Field>
-              <Field label="角色"><select value={spec.role} onChange={(e) => patch({ role: e.target.value })}>
-                {ROLES.map((k) => <option key={k}>{k}</option>)}</select></Field>
+              <Field label="类型"><select value={assetType} onChange={(e) => {
+                const next = e.target.value as AssetType
+                patch({ kind: ASSET_TYPES[next].kind, role: ASSET_TYPES[next].role,
+                  ...(next === 'free_visual' && { height_m: null, width_m: null, depth_m: null, radius_m: null,
+                    mass_kg: null, friction: null, graspable: null }),
+                  ...(!supportsVesselFeatures(next) && { has_handle: null, open_top: null }) })
+              }}>
+                {ASSET_CHOICES.map((type) => <option key={type} value={type}>{ASSET_TYPES[type].label}</option>)}</select></Field>
+              {!freeVisual && <Field label="角色"><select value={spec.role} onChange={(e) => patch({ role: e.target.value })}>
+                {roles.map((k) => <option key={k} value={k}>{ROLE_LABELS[k]}</option>)}</select></Field>}
             </div>
-            <Field label="名称"><input value={spec.name} onChange={(e) => patch({ name: e.target.value })} /></Field>
-            <Field label="用户原话（数据，非指令）"><input value={spec.user_words} onChange={(e) => patch({ user_words: e.target.value })} /></Field>
-            <div className="grid grid-cols-2 gap-x-3">
+            {!freeVisual && <Field label="名称"><input value={spec.name} onChange={(e) => patch({ name: e.target.value })} /></Field>}
+            {!freeVisual && <Field label="用户原话（数据，非指令）"><input value={spec.user_words} onChange={(e) => patch({ user_words: e.target.value })} /></Field>}
+            {!background && !freeVisual && <div className="grid grid-cols-2 gap-x-3">
               <DimInput label="高度" dim={spec.height} onChange={(v) => patch({ height_m: v })} />
               <DimInput label="半径" dim={spec.radius} onChange={(v) => patch({ radius_m: v })} />
               <DimInput label="宽度" dim={spec.width} onChange={(v) => patch({ width_m: v })} />
               <DimInput label="深度" dim={spec.depth} onChange={(v) => patch({ depth_m: v })} />
-            </div>
-            <Field label="外观/材质"><input value={spec.appearance} onChange={(e) => patch({ appearance: e.target.value })} /></Field>
-            <div className="grid grid-cols-3 gap-x-3 text-xs">
-              <Field label="把手"><select value={spec.has_handle === null ? 'null' : String(spec.has_handle)}
-                onChange={(e) => patch({ has_handle: e.target.value === 'null' ? null : e.target.value === 'true' })}>
-                <option value="null">未说明</option><option value="false">无</option><option value="true">有</option></select></Field>
-              <Field label="开口"><select value={spec.open_top === null ? 'null' : String(spec.open_top)}
-                onChange={(e) => patch({ open_top: e.target.value === 'null' ? null : e.target.value === 'true' })}>
-                <option value="null">未说明</option><option value="true">是</option><option value="false">否</option></select></Field>
-              <Field label="可抓取"><select value={phys.graspable === null ? 'null' : String(phys.graspable)}
+            </div>}
+            {freeVisual || robotVisual ? <>
+              <Field label={freeVisual ? '外观描述' : '外观与部件描述'}>
+                <textarea className="w-full min-h-20 border border-edge rounded bg-panel2 p-2 text-sm"
+                  value={appearanceDraft ?? spec.appearance} onChange={(e) => setAppearanceDraft(e.target.value)} />
+              </Field>
+              {editingAppearance && <Button variant="outline" className="mb-2" onClick={async () => {
+                const draft = appearanceDraft
+                if (draft !== null && await patch({ appearance: draft.trim() })) {
+                  setAppearanceDraft(current => current === draft ? null : current)
+                }
+              }}>保存描述</Button>}
+            </> : <Field label="外观 / 材质"><input value={spec.appearance} onChange={(e) => patch({ appearance: e.target.value })} /></Field>}
+            {robotVisual && <p className="text-xs text-muted mb-2">生成网格后，可将拆分的部件装配到已有的关节模板，再导出 URDF。</p>}
+            {vesselFeatures && <details className="mb-3 text-xs">
+              <summary className="cursor-pointer text-muted">把手与开口（选填）</summary>
+              <div className="grid grid-cols-2 gap-x-3 mt-2">
+                <Field label="把手"><select value={spec.has_handle === null ? 'null' : String(spec.has_handle)}
+                  onChange={(e) => patch({ has_handle: e.target.value === 'null' ? null : e.target.value === 'true' })}>
+                  <option value="null">未说明</option><option value="false">无</option><option value="true">有</option></select></Field>
+                <Field label="开口"><select value={spec.open_top === null ? 'null' : String(spec.open_top)}
+                  onChange={(e) => patch({ open_top: e.target.value === 'null' ? null : e.target.value === 'true' })}>
+                  <option value="null">未说明</option><option value="true">是</option><option value="false">否</option></select></Field>
+              </div>
+            </details>}
+            {kind === 'task_object' && <Field label="可抓取"><select value={phys.graspable === null ? 'null' : String(phys.graspable)}
                 onChange={(e) => patch({ graspable: e.target.value === 'null' ? null : e.target.value === 'true' })}>
-                <option value="null">未知</option><option value="true">是</option><option value="false">否</option></select></Field>
-            </div>
-            <div className="grid grid-cols-2 gap-x-3">
+                <option value="null">未知</option><option value="true">是</option><option value="false">否</option></select></Field>}
+            {!robotVisual && !background && !freeVisual && <div className="grid grid-cols-2 gap-x-3">
               <Field label="质量（kg，空=未知）"><input type="number" step="0.01" value={phys.mass?.value_kg ?? ''}
                 onChange={(e) => patch({ mass_kg: e.target.value === '' ? null : Number(e.target.value) })} /></Field>
               <Field label="摩擦 [slide,torsion,rolling]"><input value={(phys.friction || []).join(',')}
                 placeholder="0.95,0.005,0.0001" onChange={(e) => {
                   const v = e.target.value.split(',').map(Number).filter((n) => Number.isFinite(n))
                   patch({ friction: v.length === 3 ? v : null }) }} /></Field>
-            </div>
-            <div className="text-[10px] text-muted">估计值标记 model_inferred/unverified；未知尺寸→未标定，处理前不绑定物理。</div>
+            </div>}
+            {!freeVisual && <div className="text-[10px] text-muted">估计值标记 model_inferred/unverified；未知尺寸→未标定，处理前不绑定物理。</div>}
           </Section>
         </div>
       </div>
-      <Section title="编译预览（确定性、版本化；结构化字段权威）">
+      <Section title={freeVisual ? '生成预览' : '编译预览'}>
         <div className="flex gap-2 mb-2">
-          <Button onClick={compile}>编译 / 刷新预览</Button>
-          <Button variant="outline" onClick={branch}>新建分支</Button>
-          {s.compiled && <span className="text-xs text-muted self-center">compiler {s.compiled.compiler_version} · {s.compiled.provider} · {s.compiled.template} · hash {s.compiled.spec_hash?.slice(0, 12)}</span>}
+          <Button onClick={compile} disabled={editingAppearance || (freeVisual && !spec.appearance.trim())}>{freeVisual ? '预览生成提示词' : '编译 / 刷新预览'}</Button>
+          {!freeVisual && <Button variant="outline" onClick={branch}>新建分支</Button>}
+          {!freeVisual && s.compiled && <span className="text-xs text-muted self-center">compiler {s.compiled.compiler_version} · {s.compiled.provider} · {s.compiled.template} · hash {s.compiled.spec_hash?.slice(0, 12)}</span>}
         </div>
-        {s.compiled ? <div className="grid grid-cols-2 gap-3 text-xs">
+        {s.compiled ? <div className={freeVisual ? 'text-xs' : 'grid md:grid-cols-2 gap-3 text-xs'}>
           <div>
             <div className="text-accent mb-1">英文提示词（可编辑，编辑后重编译）</div>
             <textarea className="w-full h-28 font-mono text-[11px]" value={promptEdit ?? s.compiled.prompt_en}
               onChange={(e) => setPromptEdit(e.target.value)} />
-            <div className="text-accent mt-2 mb-1">中文规格</div>
-            <pre className="whitespace-pre-wrap text-[11px] bg-panel2 border border-edge rounded p-2">{s.compiled.spec_zh}</pre>
+            {!freeVisual && <>
+              <div className="text-accent mt-2 mb-1">中文规格</div>
+              <pre className="whitespace-pre-wrap text-[11px] bg-panel2 border border-edge rounded p-2">{s.compiled.spec_zh}</pre>
+            </>}
           </div>
-          <div>
+          {!freeVisual && <div>
             <div className="text-accent mb-1">Provider 载荷（不含质量/摩擦/关节）</div>
             <pre className="whitespace-pre-wrap text-[11px] bg-panel2 border border-edge rounded p-2">{JSON.stringify(s.compiled.payload, null, 1)}</pre>
             <div className="text-accent mt-2 mb-1">不支持/后处理字段</div>
             <div className="text-[11px] text-muted">{s.compiled.excluded_or_postprocess_fields?.join(', ')}</div>
             <div className="text-accent mt-2 mb-1">警告</div>
             <ul className="text-[11px] text-yellow-300 list-disc pl-4">{s.compiled.warnings?.map((w: string, i: number) => <li key={i}>{w}</li>)}</ul>
-          </div>
-        </div> : <div className="text-xs text-muted">尚未编译。无语言模型时此处仍显示规格预览，不会渲染空三维画布。</div>}
+          </div>}
+        </div> : !freeVisual && <div className="text-xs text-muted">尚未编译。</div>}
       </Section>
-      <div className="text-xs text-muted">下一步：确认生成 → 入库 → 组装 SceneRecipe → 校验（真实 MuJoCo）→ 应用到项目版本 → 仿真。</div>
-      <ConfirmPanel s={s} onDone={setS} />
+      {missingFreeProvider && <p className="text-xs text-muted mb-3">在线生成需要配置 Lux3D。 <Link to="/settings" className="text-accent">打开设置 →</Link></p>}
+      <ConfirmPanel key={assetType} s={s} onDone={setS} meshOnly={freeVisual}
+        disabled={editingAppearance || missingFreeProvider || (freeVisual && !spec.appearance.trim())} />
       <TasksPanel sessionId={s.session_id} />
-      <RecipePanel s={s} />
+      {!freeVisual && <RecipePanel s={s} />}
     </div>
   )
 }
@@ -239,7 +297,9 @@ const NODE_LABELS: Record<string, string> = {
   submit: '提交', remote: '远程生成', download: '下载', import: '导入', validate: '校验',
 }
 
-function ConfirmPanel({ s, onDone }: { s: any; onDone: (s: any) => void }) {
+function ConfirmPanel({ s, onDone, disabled, meshOnly }: {
+  s: any; onDone: (s: any) => void; disabled: boolean; meshOnly: boolean
+}) {
   const [provider, setProvider] = useState(s.asset_spec.kind === 'environment_splat' ? 'aholo_world' : 'lux3d')
   const [remoteId, setRemoteId] = useState('')
   const [busy, setBusy] = useState(false)
@@ -257,16 +317,24 @@ function ConfirmPanel({ s, onDone }: { s: any; onDone: (s: any) => void }) {
     finally { setBusy(false) }
   }
   return (
-    <Section title="确认生成（显式产品交互；模型回复不会自动触发付费生成）">
+    <Section title="确认生成">
       <div className="flex gap-2 items-end flex-wrap text-xs">
-        <Field label="Provider"><select value={provider} onChange={(e) => setProvider(e.target.value)}>
-          <option value="lux3d">lux3d（单体）</option><option value="aholo_world">aholo_world（背景）</option>
-        </select></Field>
-        <Field label="恢复已有远程任务 ID（可选，避免新建付费任务）">
+        {!meshOnly && <Field label="生成服务"><select value={provider} onChange={(e) => setProvider(e.target.value)}>
+          <option value="lux3d">Lux3D（单件网格）</option><option value="aholo_world">Aholo World（背景）</option>
+        </select></Field>}
+        {!meshOnly && <Field label="恢复已有远程任务 ID（可选，避免新建付费任务）">
           <input className="!w-56" value={remoteId} onChange={(e) => setRemoteId(e.target.value)} placeholder="如 3FO4K4RMF54N" /></Field>
-        <Button disabled={busy} onClick={confirm}>{busy ? '提交中…' : '确认生成'}</Button>
+        }
+        <Button disabled={busy || disabled} onClick={confirm}>{busy ? '提交中…' : '确认生成'}</Button>
       </div>
-      <div className="text-[10px] text-muted mt-1">重复点击同一 client_request_id 返回同一本地任务；本地幂等不保证远程 exactly-once 计费。未知提交结果不会盲目重提。</div>
+      {meshOnly ? <>
+        {!remoteId.trim() && <p className="text-xs text-muted mt-2">提交会使用 Aholo 生成额度。</p>}
+        <details className="mt-2 text-xs">
+          <summary className="cursor-pointer text-muted">恢复已有远程任务</summary>
+          <Field label="远程任务 ID"><input className="!w-56" value={remoteId} onChange={(e) => setRemoteId(e.target.value)} /></Field>
+        </details>
+      </>
+        : <p className="text-xs text-muted mt-2">新任务会使用对应服务的生成额度。</p>}
       {msg && <div className="text-xs text-yellow-300 mt-1">{msg}</div>}
     </Section>
   )
@@ -310,8 +378,10 @@ function TasksPanel({ sessionId }: { sessionId: string }) {
             {['retryable_error', 'failed'].includes(j.state) && j.remote_id &&
               ['download', 'import', 'validate'].map((n) => (
                 <Button key={n} size="sm" variant="outline" onClick={() => act(j.id, n)}>重试{NODE_LABELS[n]}</Button>))}
-            {j.state === 'succeeded' && j.asset_id &&
-              <Link className="text-accent text-[11px] self-center" to={`/library/${encodeURIComponent(j.asset_id)}`}>查看资产 →</Link>}
+            {j.state === 'succeeded' && j.asset_id && <>
+              <Link className="text-accent text-[11px] self-center" to={`/library/${encodeURIComponent(j.asset_id)}`}>查看资产 →</Link>
+              <a className="text-accent text-[11px] self-center" href={api.genBindingGuideUrl(sessionId, j.id)} download>下载绑定指南</a>
+            </>}
           </div>
         </div>))}
     </Section>
@@ -354,8 +424,11 @@ export function GenerationTaskDetail() {
           {!job.remote_id && <span className="text-xs text-muted">无已知 remote_id：请先在提供商历史中恢复任务，再填入远程 ID 重新确认；不会盲目重提。</span>}
         </div>
       </Section>
-      {job.state === 'succeeded' && job.asset_id &&
-        <Link className="text-accent text-xs" to={`/library/${encodeURIComponent(job.asset_id)}`}>查看已入库资产 →</Link>}
+      {job.state === 'succeeded' && job.asset_id && sessionId &&
+        <div className="flex gap-3 mt-2 text-xs">
+          <Link className="text-accent" to={`/library/${encodeURIComponent(job.asset_id)}`}>查看已入库资产 →</Link>
+          <a className="text-accent" href={api.genBindingGuideUrl(sessionId, job.id)} download>下载绑定指南</a>
+        </div>}
     </div>
   )
 }
@@ -482,6 +555,7 @@ function RecipePanel({ s }: { s: any }) {
         <div className="text-[11px] text-muted mt-1">读回：colliders [{(applied.read_back?.colliders || []).map((c: any) => c.name).join(', ')}] · use_default_table={String(applied.read_back?.use_default_table)} · renderer={applied.read_back?.sensor_renderer}</div>
         <div className="flex gap-3 mt-1">
           <Link className="text-accent text-[11px]" to={`/projects/${applied.project_id}/sim`}>进入仿真 →</Link>
+          <a className="text-accent text-[11px]" href={api.projectBindingGuideUrl(applied.project_id, applied.version)} download>下载项目绑定指南</a>
           <span className="text-[10px] text-muted">远程/ mock 成功≠可训练；此处以真实 MuJoCo 校验为准。</span>
         </div>
       </div>}

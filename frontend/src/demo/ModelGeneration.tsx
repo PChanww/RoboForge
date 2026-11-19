@@ -88,7 +88,7 @@ export default function ModelGeneration({ locked, onUse }: { locked: boolean; on
   }, [receipt?.sessionId, receipt?.jobId, receipt?.state])
 
   return <details className="rf-generation" open>
-    <summary><strong>描述你想要的 3D 模型</strong><span>直接调用 Aholo · 生成结果可用于当前场景</span></summary>
+    <summary><strong>生成 3D 模型</strong></summary>
     <div className="rf-generation-body">
       <div className="rf-generation-form">
         <div className="rf-generation-fields">
@@ -99,12 +99,10 @@ export default function ModelGeneration({ locked, onUse }: { locked: boolean; on
         </div>
         <label className="rf-field">外形要求<textarea aria-label="3D 模型要求" maxLength={1500} value={prompt} disabled={disabled} onChange={e => setPrompt(e.target.value)} /></label>
         <button className="rf-generate-button" disabled={disabled || !configured || prompt.trim().length < 4 || !name.trim()} onClick={() => void submit()}>{busy ? '正在提交…' : '提交 Aholo 生成'}</button>
-        <small>点击会提交一次在线生成，使用后端配置的 Aholo 额度。模型生成需要等待，刷新可恢复进度。</small>
+        <small>提交会使用 Aholo 生成额度。</small>
       </div>
       <div className="rf-generation-result" aria-live="polite">
-        <span className="rf-eyebrow">MODEL GENERATION</span>
-        <strong>{receipt ? statuses[receipt.state] ?? '处理模型中' : '从你的描述开始'}</strong>
-        <p>{receipt ? receipt.prompt : '描述物体的造型、颜色和材质；或生成一款新的四轮底盘。生成后点击采用，场景预览就会使用它。'}</p>
+        {receipt && <strong>{statuses[receipt.state] ?? '处理模型中'}</strong>}
         {receipt?.sessionId && <Link to={`/generation/${receipt.sessionId}`}>查看完整生成任务 ↗</Link>}
         {receipt?.assetId && receipt.state === 'succeeded' && <button disabled={locked || busy} onClick={async () => {
           setBusy(true); setError(''); try { await onUse(receipt.assetId!, receipt.target) } catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
@@ -113,7 +111,7 @@ export default function ModelGeneration({ locked, onUse }: { locked: boolean; on
         {receipt && !active && <button className="rf-generation-reset" disabled={busy || locked} onClick={() => { localStorage.removeItem(key); setReceipt(null); setError('') }}>准备新的模型要求</button>}
         {(error || receipt?.error) && <p className="rf-generation-error" role="alert">{error || receipt?.error}</p>}
         {configured === false && <p className="rf-generation-error">后端尚未配置 Aholo，生成暂不可用。</p>}
-        <small>当前物体按高 6 cm、35 g 导入；底盘按高 6.5 cm 导入。尺寸与质量为演示设定。底盘生成外观，关节臂沿用现有机构；新物体需要通过夹爪尺寸校验。</small>
+        <small>导入尺寸：物体高 6 cm、重 35 g；底盘高 6.5 cm，仅替换外观。</small>
       </div>
     </div>
   </details>

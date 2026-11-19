@@ -28,8 +28,9 @@ def _now():
 
 
 class JobManager:
-    def __init__(self, lab_root: Path):
+    def __init__(self, lab_root: Path, lux3d_key_provider=None):
         self.lab = Path(lab_root)
+        self._lux3d_key_provider = lux3d_key_provider
         self.dir = self.lab / "datasets" / "jobs"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.index_path = self.dir / "jobs.json"
@@ -217,6 +218,11 @@ class JobManager:
                 self._save()
             return
         logp = self.dir / jid / "log.txt"
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+        if job["kind"] == "lux3d_generate" and self._lux3d_key_provider is not None:
+            key = self._lux3d_key_provider()
+            if key:
+                env["AHOLO_API_KEY"] = key
         with open(logp, "w", encoding="utf-8") as log:
             log.write(f"$ {' '.join(cmd)}\n")
             log.flush()
@@ -225,7 +231,7 @@ class JobManager:
                     return
                 try:
                     proc = subprocess.Popen(cmd, cwd=cwd, stdout=log, stderr=subprocess.STDOUT,
-                                            env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+                                            env=env)
                 except OSError as exc:
                     job.update(status="failed", error=str(exc), finished=_now())
                     self._save()

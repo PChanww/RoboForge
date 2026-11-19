@@ -1,17 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
-import transportImage from '../transport/transport-workcell.jpg'
-
-type Project = { id: string; version: number | null; robots: string[]; task: string | null }
-type TransportRun = {
-  id: string
-  experiment_name?: string
-  status: string
-  created: string | null
-  task_kind: string
-  policy_identity?: { label?: string; learned_policy?: boolean }
-}
+import { useI18n } from '../i18n'
+import type { ProjectListItem } from '../types'
 
 const TASK_LABELS: Record<string, string> = {
   deliver: '传送带抓取并入箱',
@@ -22,15 +13,7 @@ const TASK_LABELS: Record<string, string> = {
   duck_conveyor: '传送带小鸭分拣',
   tabletop_push: '桌面推物',
 }
-const PAGE_SIZE = 5
-const projectDate = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' })
-
-async function transportHistory(): Promise<{ runs: TransportRun[] }> {
-  const response = await fetch('/api/v1/transport/history')
-  if (!response.ok) throw new Error('无法读取实验记录')
-  return response.json()
-}
-
+const PAGE_SIZE = 8
 function useWorkspaceData<T>(load: () => Promise<T>) {
   const [data, setData] = useState<T | null>(null)
   const [failed, setFailed] = useState(false)
@@ -51,122 +34,136 @@ function DataNotice({ children, retry }: { children: string; retry?: () => void 
   return <div className="workspace-notice" role="status">{children}{retry && <button type="button" onClick={retry}>重试</button>}</div>
 }
 
-function projectName(project: Project) {
+function projectName(project: ProjectListItem) {
+  if (project.id === 'hackathon_demo') return '多物体 VLA 搬运'
   return project.id === 'default' ? '默认机械臂项目' : project.id
 }
 
+function projectListPriority(id: string) {
+  if (id === 'default') return 0
+  return /^(?:aholo_demo|eval|qa|test)_/.test(id) ? 2 : 1
+}
+
+function ProjectCard({ project }: { project: ProjectListItem }) {
+  const { t } = useI18n()
+  const name = t(projectName(project))
+  const [loadedSummary, setLoadedSummary] = useState<ProjectListItem['summary']>()
+  useEffect(() => {
+    if (project.summary) return
+    let active = true
+    api.getConfig(project.id).then(({ task, sensors, scene }) => {
+      if (!active) return
+      setLoadedSummary({
+        instruction: task.instruction,
+        task_asset: task.asset,
+        sensor_ids: sensors.map(sensor => sensor.id),
+        sensor_renderer: scene.sensor_renderer ?? 'mujoco',
+        environment_id: scene.environment?.asset_id ?? null,
+        scene_asset_count: scene.asset_nodes?.length ?? 0,
+      })
+    }).catch(() => {
+      if (active) setLoadedSummary(undefined)
+    })
+    return () => { active = false }
+  }, [project.id, project.version, project.summary])
+
+  const summary = project.summary ?? loadedSummary
+  const instruction = summary?.instruction?.trim()
+  const task = project.id === 'hackathon_demo' ? t('蓝杯和橙色方块同台，按指令每轮搬运一个。')
+    : project.task ? t(TASK_LABELS[project.task] ?? project.task) : null
+  const renderer = summary?.sensor_renderer === 'mujoco' ? 'MuJoCo'
+    : summary?.sensor_renderer === 'hybrid' ? t('固定相机混合渲染') : summary?.sensor_renderer
+
+  return (
+    <li className="workspace-card">
+      <header className="project-card__heading">
+        <h2 title={project.id}>{name}</h2>
+        {project.version != null && <span>v{project.version}</span>}
+      </header>
+      <dl className="project-card__details">
+        {(task || summary?.task_asset || instruction) && <>
+          <dt>{t('任务')}</dt>
+          <dd>
+            {task}
+            {summary?.task_asset && <span className="project-card__asset" title={t('任务资产')}>{summary.task_asset}</span>}
+            {instruction && <p className="project-card__instruction" title={instruction}>{instruction}</p>}
+          </dd>
+        </>}
+        {project.robots.length > 0 && <>
+          <dt>{t('机器人')}</dt>
+          <dd className="project-card__robots">
+            {project.robots.map(robot => (
+              <Link key={robot} to={`/robots/${encodeURIComponent(robot)}/edit`}
+                aria-label={`${t('编辑机器人')} ${robot}`}>{robot}</Link>
+            ))}
+          </dd>
+        </>}
+        {summary && <>
+          <dt>{t('传感器')}</dt>
+          <dd>{summary.sensor_ids.length ? summary.sensor_ids.join(' · ') : t('未配置')}</dd>
+          <dt>{t('场景')}</dt>
+          <dd>
+            {renderer}
+            {summary.scene_asset_count > 0 && <> · {t('场景资产')} {summary.scene_asset_count}</>}
+            {summary.environment_id && <span className="project-card__environment">{t('环境')} {summary.environment_id}</span>}
+          </dd>
+        </>}
+      </dl>
+      <Link className="workspace-cta workspace-cta--quiet project-card__open"
+        to={`/projects/${encodeURIComponent(project.id)}/sim`}
+        aria-label={`${t('打开仿真')} · ${name}`}>{t('打开仿真')}</Link>
+    </li>
+  )
+}
+
 export default function ProjectsPage() {
-  const projects = useWorkspaceData<{ projects: Project[] }>(api.projects)
-  const training = useWorkspaceData(api.transportTraining)
-  const history = useWorkspaceData(transportHistory)
+  const projects = useWorkspaceData(api.projects)
+  const { t } = useI18n()
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
 
   const query = search.trim().toLowerCase()
   const allProjects = projects.data?.projects ?? []
   const defaultProject = allProjects.find(project => project.id === 'default')
-  const orderedProjects = defaultProject ? [defaultProject, ...allProjects.filter(project => project !== defaultProject)] : allProjects
+  const orderedProjects = [...allProjects].sort((a, b) => projectListPriority(a.id) - projectListPriority(b.id))
   const filtered = orderedProjects.filter(project => {
     const task = project.task ?? ''
-    return [projectName(project), project.id, task, TASK_LABELS[task] ?? '', ...project.robots]
-      .some(value => value.toLowerCase().includes(query))
+    const { summary } = project
+    return [projectName(project), t(projectName(project)), project.id, task, TASK_LABELS[task],
+      summary?.instruction, summary?.task_asset, summary?.environment_id, ...project.robots, ...(summary?.sensor_ids ?? [])]
+      .some(value => value?.toLowerCase().includes(query))
   })
   const lastPage = Math.max(0, Math.ceil(filtered.length / PAGE_SIZE) - 1)
   const currentPage = Math.min(page, lastPage)
   const visible = filtered.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE)
-  const evaluated = (history.data?.runs ?? []).filter(run => run.policy_identity?.learned_policy
-    && (run.status === 'succeeded' || run.status === 'failed'))
-
-  const workflow = [
-    { icon: '◇', title: '搬运仿真', detail: '设置任务、物体与执行策略', to: '/transport?view=task' },
-    { icon: '▤', title: '实验数据', detail: training.data ? `${training.data.datasets.length} 个可训练示范记录` : '查看与导出采集记录', to: '/transport?view=datasets' },
-    { icon: '⟁', title: 'GPU 训练', detail: training.data ? `${training.data.checkpoints.length} 个移动检查点` : '从专家示范训练移动策略', to: '/training' },
-    { icon: '◎', title: '闭环评测', detail: '查看物理结果与失败阶段', to: '/evaluations' },
-  ]
-
   return (
-    <div className="workspace-page projects-workspace">
-      <header className="workspace-page-heading"><h1>项目工作台</h1></header>
-
-      <section className="projects-hero" aria-labelledby="transport-heading">
-        <div className="projects-hero__copy">
-          <h2 id="transport-heading">移动搬运仿真</h2>
-          <p>配置传送带抓取任务，用专家或学习策略执行，保留双相机和动作数据。</p>
-          <div className="projects-hero__actions">
-            <Link className="workspace-cta workspace-cta--primary" to="/transport?view=task">进入搬运仿真 <span aria-hidden="true">→</span></Link>
-            <Link className="workspace-cta workspace-cta--quiet" to="/evaluations">查看评测</Link>
-          </div>
+    <section className="workspace-page" aria-labelledby="project-heading">
+      <header className="workspace-page-heading">
+        <h1 id="project-heading">{t('项目工作台')}</h1>
+      </header>
+      <div className="projects-toolbar">
+        <div className="experiment-actions">
+          {defaultProject && <Link className="workspace-cta workspace-cta--primary" to={`/projects/${encodeURIComponent(defaultProject.id)}/sim`}>
+            {t('打开仿真')}
+          </Link>}
+          <Link className="workspace-cta workspace-cta--quiet" to="/collect">{t('开始采集')}</Link>
         </div>
-        <figure className="projects-hero__image">
-          <img src={transportImage} alt="MuJoCo 前视相机中的移动机械臂、传送带和收纳箱" fetchPriority="high" />
-          <figcaption>MuJoCo · 前视相机</figcaption>
-        </figure>
-      </section>
-
-      <section className="projects-flow" aria-labelledby="flow-heading">
-        <h2 id="flow-heading">实验流程</h2>
-        <div className="projects-flow__grid">
-          {workflow.map(step => <Link to={step.to} className="projects-flow__item" key={step.title}>
-            <span className="projects-flow__icon" aria-hidden="true">{step.icon}</span>
-            <span className="projects-flow__copy"><strong>{step.title}</strong><span>{step.detail}</span></span>
-            <span className="projects-flow__arrow" aria-hidden="true">→</span>
-          </Link>)}
-        </div>
-      </section>
-
-      <div className="projects-overview">
-        <section className="projects-panel" aria-labelledby="local-projects-heading">
-          <div className="projects-panel__head">
-            <div><h2 id="local-projects-heading">已有项目</h2>{projects.data && <p>{query ? `${filtered.length} 个匹配项目` : `${allProjects.length} 个项目`}</p>}</div>
-            <input aria-label="搜索项目" placeholder="搜索项目、机器人或任务" className="projects-search" type="search" value={search}
-              onChange={event => { setSearch(event.target.value); setPage(0) }} />
-          </div>
+        <input aria-label="搜索项目" placeholder="搜索项目、机器人或任务" className="projects-search" type="search" value={search}
+          onChange={event => { setSearch(event.target.value); setPage(0) }} />
+      </div>
+      <div>
           {projects.failed ? <DataNotice retry={projects.retry}>项目暂时无法加载。</DataNotice>
             : !projects.data ? <DataNotice>正在读取项目…</DataNotice>
             : !visible.length ? <DataNotice>{query ? '没有匹配的项目。' : '暂无项目。'}</DataNotice>
-            : <ul className="projects-list">
-              {visible.map(project => <li key={project.id}>
-                <div className="projects-list__description">
-                  <strong title={project.id}>{projectName(project)}</strong>
-                  <span className="projects-list__meta">
-                    {project.task && <span>{TASK_LABELS[project.task] ?? project.task}</span>}
-                    {project.version != null && <span>v{project.version}</span>}
-                    {project.robots.map(robot => <Link key={robot} to={`/robots/${encodeURIComponent(robot)}/edit`} aria-label={`编辑机器人 ${robot}`}>{robot}</Link>)}
-                  </span>
-                </div>
-                <Link className="workspace-cta workspace-cta--quiet" to={`/projects/${encodeURIComponent(project.id)}/sim`} aria-label={`打开 ${projectName(project)} 的仿真`}>打开仿真 <span aria-hidden="true">→</span></Link>
-              </li>)}
+            : <ul className="projects-list workspace-card-grid" aria-label="项目列表">
+              {visible.map(project => <ProjectCard key={`${project.id}:${project.version}`} project={project} />)}
             </ul>}
           {lastPage > 0 && <div className="projects-pagination" aria-label="项目分页">
             <button type="button" onClick={() => setPage(currentPage - 1)} disabled={currentPage === 0}>上一页</button>
             <span aria-live="polite">{currentPage + 1} / {lastPage + 1}</span>
             <button type="button" onClick={() => setPage(currentPage + 1)} disabled={currentPage >= lastPage}>下一页</button>
           </div>}
-        </section>
-
-        <section className="projects-panel" aria-labelledby="recent-evaluations-heading">
-          <div className="projects-panel__head">
-            <h2 id="recent-evaluations-heading">最近策略评测</h2>
-            <Link className="projects-text-link" to="/evaluations">查看全部 <span aria-hidden="true">→</span></Link>
-          </div>
-          {history.failed ? <DataNotice retry={history.retry}>评测记录暂时无法加载。</DataNotice>
-            : !history.data ? <DataNotice>正在读取评测记录…</DataNotice>
-            : evaluated.length === 0 ? <DataNotice>暂无已结束的策略评测。</DataNotice>
-            : <ul className="projects-run-list">
-              {evaluated.slice(0, 4).map(run => <li key={run.id}>
-                <Link to={`/evaluations?run=${encodeURIComponent(run.id)}`}>
-                  <div className="projects-run-list__title">
-                    <strong>{run.experiment_name || run.policy_identity?.label || '学习策略'}</strong>
-                    <span className={`projects-result ${run.status === 'succeeded' ? 'is-passed' : 'is-failed'}`}>{run.status === 'succeeded' ? '通过' : '未通过'}</span>
-                  </div>
-                  <p>{TASK_LABELS[run.task_kind] ?? run.task_kind}
-                    {run.created && Number.isFinite(Date.parse(run.created)) && <><span aria-hidden="true"> · </span><time dateTime={run.created}>{projectDate.format(new Date(run.created))}</time></>}
-                  </p>
-                </Link>
-              </li>)}
-            </ul>}
-        </section>
       </div>
-    </div>
+    </section>
   )
 }

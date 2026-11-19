@@ -3,7 +3,7 @@
 ## 入口与布局
 
 - `/scenes/:sceneId/edit`：加载资产清单与项目场景配置；上方元数据（来源/格式/状态/revision/up_axis/unit_scale/calibrated/包围盒）、绑定按钮、校验；下方**三维画布** + 实例数值标定 + 两点测量 + 碰撞代理列表。
-- 画布（`frontend/src/components/SceneCanvas.tsx`）：加载规范化 `visual.obj`（`/api/v1/scene-assets/{id}/revisions/{rev}/visual.obj`），碰撞代理线框（box/plane/cylinder），网格开关；点选实例/代理后 `TransformControls` 平移并回写数值；`OrbitControls` 与 gizmo 互斥。高斯/点云资产显示全景预览并注明无 MJCF 网格视觉（渲染由 hybrid 负责）。
+- 网格画布加载规范化 `visual.obj`（`/api/v1/scene-assets/{id}/revisions/{rev}/visual.obj`），显示碰撞代理线框和网格。实例和代理支持平移、旋转及数值编辑。高斯与点云使用预览入口，高斯可以另作 hybrid 的视觉背景。
 
 ## 操作
 
@@ -28,5 +28,5 @@
 
 ## 支持范围与限制
 
-- 支持：mesh 场景（OBJ/GLB 导入）、高斯/点云资产预览与 hybrid 绑定、box/plane/cylinder 静态代理、统一缩放。
-- 未支持：画布点击拾取两点测量（当前数值点）、旋转 gizmo（数值 quaternion 字段）、撤销逐键覆盖、非均匀缩放、椭圆柱、自动碰撞提取、场景三维 3DGS 预览（依赖渲染库）。
+- 本地场景导入接收 GLB 或 PLY，处理后的网格用 OBJ 显示。点云用于预览，3DGS 可按[渲染条件](RENDERING_PIPELINE.zh-CN.md)绑定为固定前视背景。
+- 两点测量使用数值坐标。场景实例使用统一缩放，通用静态代理使用盒体、圆柱或平面。机器人和相机是否可在当前项目运行，见[平台支持范围](PLATFORM_SCOPE.zh-CN.md)。

@@ -5,6 +5,7 @@ from collections import OrderedDict
 import json
 import math
 import os
+import shlex
 import subprocess
 import sys
 import threading
@@ -35,14 +36,15 @@ class _SharedSmolVLAWorker:
         worker_script = repo_vla / "scripts" / "smolvla_worker.py"
         if sys.platform.startswith("win"):
             distro = os.environ.get("VLAB_WSL_DISTRO", "Ubuntu-22.04")
-            deps_wsl = _to_wsl_path(repo_vla.parents[1] / "work" / "policy" / "deps")
+            deps_wsl = os.environ.get("VLAB_WSL_POLICY_DEPS") or _to_wsl_path(
+                repo_vla.parents[1] / "work" / "policy" / "deps")
             script_wsl = _to_wsl_path(worker_script)
             model_wsl = _to_wsl_path(self.model_dir)
             cmd = [
                 "wsl", "-d", distro, "--", "bash", "-lc",
                 f"PYTHONDONTWRITEBYTECODE=1 TOKENIZERS_PARALLELISM=false "
-                f"PYTHONPATH={deps_wsl}:. HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 "
-                f"~/miniconda3/envs/voxcpm/bin/python -u {script_wsl} --model-dir {model_wsl}",
+                f"PYTHONPATH={shlex.quote(deps_wsl)}:. HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 "
+                f"~/miniconda3/envs/voxcpm/bin/python -u {shlex.quote(script_wsl)} --model-dir {shlex.quote(model_wsl)}",
             ]
         else:
             cmd = [sys.executable, "-u", str(worker_script), "--model-dir", str(self.model_dir)]

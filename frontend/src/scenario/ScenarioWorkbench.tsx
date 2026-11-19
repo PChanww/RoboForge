@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
+import ExperimentWorkspace from '../components/ExperimentWorkspace'
 import './scenario.css'
 
 type Asset = { id: string; name: string }
@@ -204,36 +205,33 @@ export default function ScenarioWorkbench() {
   const roles: Role[] = ['environment', 'robot', 'object']
   const workflowIndex = run ? run.status === 'generating' ? 1 : run.status === 'assembling' ? 2 : 3 : plan ? 1 : 0
 
-  return <div className="sc-app">
-    <aside className="sc-sidebar"><Link className="sc-brand" to="/"><span>◇</span> RoboForge <small>LAB</small></Link>
-      <div className="sc-workspace"><span>RF</span><div>本地实验室<small>从场景需求到机器人数据</small></div></div>
-      <nav><Link className="selected" to="/create"><span>✧</span> 场景生成工作台 <i>01</i></Link><Link to="/transport"><span>⇄</span> 移动抓取搬运 <i>↗</i></Link><Link to="/drive"><span>⌁</span> 移动机器人 <i>↗</i></Link><Link to="/"><span>▦</span> 传送带 Demo <i>↗</i></Link><Link to="/projects"><span>□</span> 完整平台 <i>↗</i></Link></nav>
-      <div className="sc-sidebar-note"><span>01 → 04</span><strong>让你的要求，进入仿真。</strong><p>环境、外观与物品由 Aholo 生成，机器人在 MuJoCo 中执行任务。</p></div>
-      <small className="sc-sidebar-foot">ROBOFORGE · SCENARIO LAB</small>
-    </aside>
-    <div className="sc-body"><header className="sc-topbar"><span>工作空间 <b>/</b> 场景生成工作台</span><button onClick={() => setConnectionVersion(value => value + 1)}><i className={capabilities ? 'online' : ''}/>{capabilities ? '后端已连接' : '连接后端'}<span>↻</span></button></header>
-      <main className="sc-main"><div className="sc-heading"><div><span className="sc-kicker">FROM REQUIREMENTS TO SIMULATION</span><h1>描述一个工作现场<span>。</span></h1><p>提出环境、机器人、物品和工作要求，生成资产后自动组装、仿真并记录数据。</p></div><span className="sc-version">SCENARIO / 01</span></div>
+  return <ExperimentWorkspace title="整场景生成" description="描述场景、机器人外观和任务目标。"
+    actions={<button className="workspace-cta workspace-cta--quiet" onClick={() => setConnectionVersion(value => value + 1)}>
+      {capabilities ? '刷新连接' : '重新连接'}
+    </button>}>
+    <div className="sc-app">
+      <div className="sc-main">
         <div className="sc-workflow">{['描述需求', '生成资产', '组装场景', '仿真与采集'].map((label, index) => <div key={label} className={index === workflowIndex ? 'active' : index < workflowIndex ? 'done' : ''}><span>{index < workflowIndex ? '✓' : `0${index + 1}`}</span>{label}{index < 3 && <i/>}</div>)}</div>
         {error && <div className="sc-alert" role="alert"><strong>操作提示</strong><span>{error}</span><button onClick={() => setError('')} aria-label="关闭提示">×</button></div>}
         {unknownSubmission && <div className="sc-recovery"><div><strong>这次提交已保存在浏览器中</strong><p>恢复会复用同一个请求，确认已有任务和生成进度。</p></div><button disabled={!!busy} onClick={() => void submit(true)}>{busy === 'submit' ? '正在恢复…' : '恢复这次提交'}</button></div>}
-        <div className="sc-layout"><section className="sc-intent sc-card"><div className="sc-card-title"><span>01 / REQUIREMENTS</span><h2>你想搭建怎样的场景？</h2><p>外形要求直接交给 Aholo；动作按检查后的执行参数运行。</p></div>
+        <div className="sc-layout"><section className="sc-intent sc-card"><div className="sc-card-title"><h2>场景要求</h2><p>外形要求直接交给 Aholo；动作按检查后的执行参数运行。</p></div>
           <div className="sc-requirements">
-            <section className="sc-requirement"><div><span className="sc-number">01</span><h3>环境</h3><select aria-label="环境来源" value={spec.environment_mode} disabled={locked} onChange={e => change('environment_mode', e.target.value as Spec['environment_mode'])}><option value="generate">按要求生成道具</option><option value="reuse">复用环境道具</option><option value="none">简洁作业区</option></select></div>
+            <section className="sc-requirement"><div><h3>环境</h3><select aria-label="环境来源" value={spec.environment_mode} disabled={locked} onChange={e => change('environment_mode', e.target.value as Spec['environment_mode'])}><option value="generate">按要求生成道具</option><option value="reuse">复用环境道具</option><option value="none">简洁作业区</option></select></div>
               <textarea aria-label="环境要求" value={spec.environment} maxLength={1500} disabled={locked || spec.environment_mode === 'none'} onChange={e => change('environment', e.target.value)} placeholder="例如：仓库分拣区，后方货架，中央留出空旷作业区"/>
               {spec.environment_mode === 'reuse' && <label className="sc-field">已有环境道具<select aria-label="已有环境道具" disabled={locked} value={spec.environment_asset ?? ''} onChange={e => change('environment_asset', e.target.value || null)}><option value="">请选择环境道具</option>{capabilities?.environments.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label>}
               <small>生成环境道具并组装在作业区后方，工作区保持空旷；当前不生成完整房间。</small>
             </section>
-            <section className="sc-requirement"><div><span className="sc-number">02</span><h3>机器人</h3><select aria-label="机器人来源" value={spec.robot_mode} disabled={locked || spec.robot_mount === 'fixed_arm'} onChange={e => change('robot_mode', e.target.value as Spec['robot_mode'])}><option value="reuse">复用机器人外观</option><option value="generate">按要求生成外观</option></select></div>
+            <section className="sc-requirement"><div><h3>机器人</h3><select aria-label="机器人来源" value={spec.robot_mode} disabled={locked || spec.robot_mount === 'fixed_arm'} onChange={e => change('robot_mode', e.target.value as Spec['robot_mode'])}><option value="reuse">复用机器人外观</option><option value="generate">按要求生成外观</option></select></div>
               <textarea aria-label="机器人要求" value={spec.robot} maxLength={1500} disabled={locked} onChange={e => change('robot', e.target.value)} placeholder="例如：绿色四轮底盘，顶部安装机械臂"/>
               {spec.robot_mode === 'reuse' && spec.robot_mount === 'four_wheel' && <label className="sc-field">已有底盘<select aria-label="已有机器人底盘" value={spec.chassis_asset} disabled={locked} onChange={e => change('chassis_asset', e.target.value)}>{capabilities?.chassis.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label>}
               <small>{spec.robot_mount === 'fixed_arm' ? '固定机械臂沿用现有机构，不生成底盘外观。' : '生成底盘外观，机械臂与抓取动作沿用现有机构。'}</small>
             </section>
-            <section className="sc-requirement"><div><span className="sc-number">03</span><h3>物品</h3><select aria-label="物品来源" value={spec.object_mode} disabled={locked} onChange={e => change('object_mode', e.target.value as Spec['object_mode'])}><option value="reuse">复用已有物品</option><option value="generate">按要求生成物品</option></select></div>
+            <section className="sc-requirement"><div><h3>物品</h3><select aria-label="物品来源" value={spec.object_mode} disabled={locked} onChange={e => change('object_mode', e.target.value as Spec['object_mode'])}><option value="reuse">复用已有物品</option><option value="generate">按要求生成物品</option></select></div>
               <textarea aria-label="物品要求" value={spec.object} maxLength={1500} disabled={locked} onChange={e => change('object', e.target.value)} placeholder="例如：红色塑料小鸭，黄色嘴，完整刚体"/>
               {spec.object_mode === 'reuse' && <label className="sc-field">已有抓取物品<select aria-label="已有抓取物品" value={spec.object_asset} disabled={locked} onChange={e => change('object_asset', e.target.value)}>{capabilities?.objects.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label>}
               <small>当前适合夹爪能容纳的小型单体。新造型的抓取结果会如实记录。</small>
             </section>
-            <section className="sc-requirement"><div><span className="sc-number">04</span><h3>工作状态与任务</h3><span className="sc-chip">抓取 → 入箱</span></div>
+            <section className="sc-requirement"><div><h3>工作状态与任务</h3><span className="sc-chip">抓取 → 入箱</span></div>
               <textarea aria-label="工作状态要求" value={spec.operation} maxLength={1500} disabled={locked} onChange={e => change('operation', e.target.value)} placeholder="例如：传送带不停，随机姿态，抓取入箱，采集3次"/>
               <small>描述中可提出带速、随机姿态和采集数量，检查方案后核对执行参数。</small>
             </section>
@@ -249,7 +247,7 @@ export default function ScenarioWorkbench() {
           </div><div className="sc-toggles"><label><input type="checkbox" checked={spec.continuous} disabled={locked} onChange={e => change('continuous', e.target.checked)}/>传送带全程不停</label><label><input type="checkbox" checked={spec.random_pose} disabled={locked} onChange={e => change('random_pose', e.target.checked)}/>随机初始姿态</label></div><p className="sc-parameter-note">修改参数会清除工作描述中对应的设置，最终以检查后的方案为准。</p></div>
           <div className="sc-intent-actions"><button className="sc-primary" disabled={locked || !capabilities || spec.operation.trim().length < 2} onClick={() => void checkPlan()}>{busy === 'plan' ? '正在检查…' : '检查执行方案'}<span aria-hidden="true">→</span></button><small>检查方案不会提交在线生成。</small></div>
         </section>
-        <div className="sc-right"><section className="sc-plan sc-card"><div className="sc-card-title"><span>02 / EXECUTION PLAN</span><h2>{run ? runLabels[run.status] : plan ? '把要求变成可执行方案' : '先看看这次怎么做'}</h2></div>
+        <div className="sc-right"><section className="sc-plan sc-card"><div className="sc-card-title"><h2>{run ? runLabels[run.status] : plan ? '把要求变成可执行方案' : '先看看这次怎么做'}</h2></div>
           {plan ? <div className="sc-plan-content"><p className="sc-plan-summary">{plan.summary}</p><dl className="sc-plan-facts"><div><dt>环境</dt><dd>{plan.spec.environment_mode === 'none' ? '简洁作业区' : plan.spec.environment_mode === 'generate' ? '生成环境道具并放入场景' : '复用环境道具'}</dd></div><div><dt>机器人</dt><dd>{plan.spec.robot_mount === 'four_wheel' ? '四轮底盘停靠 + 机械臂' : '固定机械臂'}</dd></div><div><dt>物品</dt><dd>{plan.spec.object_mode === 'generate' ? '生成新物品' : '复用已有物品'}</dd></div><div><dt>执行</dt><dd>{plan.spec.continuous ? '不停带跟随' : '节拍输送'} · {Number((plan.spec.belt_speed_m_s * 100).toFixed(2))} cm/s · {plan.spec.episodes} 次</dd></div></dl>
             {!!plan.steps.length && <ol className="sc-plan-steps">{plan.steps.map((step, index) => <li key={index}><span>{String(index + 1).padStart(2, '0')}</span>{step}</li>)}</ol>}
             {plan.issues.length > 0 && <div className="sc-notices sc-issues"><strong>这些要求还不能执行</strong><ul>{plan.issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul></div>}
@@ -269,14 +267,14 @@ export default function ScenarioWorkbench() {
         })}</section>
         {capabilities?.notes?.length ? <div className="sc-scope"><strong>当前实验范围</strong>{capabilities.notes.map((note, index) => <p key={index}>{note}</p>)}</div> : null}
         </div></div>
-        <section className="sc-simulation sc-card"><div className="sc-section-head"><div><span className={'sc-live-dot ' + (running ? 'running' : '')}/><h2>仿真现场</h2><span className="sc-small-label">AHOLO × MUJOCO</span></div><span>{run ? runLabels[run.status] : '准备生成场景'}</span></div>
-          <div className="sc-camera">{image ? <img src={'data:image/jpeg;base64,' + image} alt={camera === 'front' ? '场景前视相机画面' : '场景腕部相机画面'}/> : <div className="sc-camera-empty"><span>◇</span><strong>{run?.status === 'generating' ? '场景资产正在生成' : run?.status === 'assembling' ? '正在组装真实仿真场景' : jobId ? '正在等待相机画面' : '你的工作现场将在这里出现'}</strong><p>{previewError || (run ? '生成和导入完成后自动进入仿真，无需再次操作。' : '检查方案并开始实验后，查看双相机与机器人操作。')}</p></div>}<div className="sc-camera-overlay"><span>{camera === 'front' ? 'FRONT / 前视相机' : 'WRIST / 腕部相机'}</span><span>{preview.sim_time.toFixed(2)} s · Tick {preview.tick}</span></div></div>
+        <section className="sc-simulation sc-card"><div className="sc-section-head"><div><span className={'sc-live-dot ' + (running ? 'running' : '')}/><h2>仿真现场</h2></div><span>{run ? runLabels[run.status] : '准备生成场景'}</span></div>
+          <div className="sc-camera">{image ? <img src={'data:image/jpeg;base64,' + image} alt={camera === 'front' ? '场景前视相机画面' : '场景腕部相机画面'}/> : <div className="sc-camera-empty"><span>◇</span><strong>{run?.status === 'generating' ? '场景资产正在生成' : run?.status === 'assembling' ? '正在组装真实仿真场景' : jobId ? '正在等待相机画面' : '你的工作现场将在这里出现'}</strong><p>{previewError || (run ? '生成和导入完成后自动进入仿真，无需再次操作。' : '检查方案并开始实验后，查看双相机与机器人操作。')}</p></div>}<div className="sc-camera-overlay"><span>{camera === 'front' ? '前视相机' : '腕部相机'}</span><span>{preview.sim_time.toFixed(2)} s · Tick {preview.tick}</span></div></div>
           <div className="sc-camera-controls"><div><button className={camera === 'front' ? 'selected' : ''} onClick={() => setCamera('front')}>前视相机</button><button className={camera === 'wrist' ? 'selected' : ''} onClick={() => setCamera('wrist')}>腕部相机</button></div><span>{jobId ? `${preview.episode_index === undefined ? '' : `第 ${preview.episode_index + 1} / ${run?.spec.episodes} 次 · `}${preview.stage ?? '准备仿真'}${preview.metrics?.belt_speed_m_s === undefined ? '' : ` · 带速 ${(preview.metrics.belt_speed_m_s * 100).toFixed(1)} cm/s`}` : '生成需要等待，任务会保存在后端。'}</span></div>
         </section>
         <section className="sc-results sc-card"><div className="sc-section-head"><div><h2>本次采集</h2>{run && <span className={'sc-result-status ' + run.status}>{runLabels[run.status]}</span>}</div><button className="sc-secondary" disabled={!manifest} onClick={downloadManifest}>↓ 下载清单</button></div><div className="sc-stats"><div><span>完成 / 计划</span><strong>{String(rows.length).padStart(2, '0')}<small>/ {String(run?.spec.episodes ?? spec.episodes).padStart(2, '0')}</small></strong></div><div><span>已记录帧数</span><strong>{(manifest?.summary.frames ?? rows.reduce((total, row) => total + row.frames, 0)).toLocaleString()}<small>帧</small></strong></div><div><span>成功率</span><strong>{rows.length ? Math.round(successes / rows.length * 100) : '—'}<small>{rows.length ? '%' : ''}</small></strong></div><div><span>数据内容</span><p>双相机 · 关节状态 · 控制动作<br/>物体姿态 · 传送带状态 · 时间戳</p></div></div>
           {rows.length ? <div className="sc-table-wrap"><table><thead><tr><th>样本</th><th>种子</th><th>数据帧数</th><th>仿真时长</th><th>结果</th><th>数据</th></tr></thead><tbody>{rows.map(row => <tr key={row.index}><td>Episode {String(row.index + 1).padStart(3, '0')}</td><td>Seed {row.seed}</td><td>{row.frames} 帧</td><td>{row.duration_s.toFixed(2)} s</td><td><span className={'sc-outcome ' + (row.success ? '' : 'failed')}>{row.success ? '✓ 成功' : '未成功'}</span></td><td>{manifest && run?.dataset_id ? <a href={`/api/v1/datasets/collection__${encodeURIComponent(run.dataset_id)}/episodes/${row.index}`}>下载 NPZ ↗</a> : '正在保存'}</td></tr>)}</tbody></table></div> : <div className="sc-results-empty"><span>▤</span><strong>{run?.status === 'simulating' ? '正在等待第一条完整示范' : '让需求产生可检查的机器人数据'}</strong><p>每次操作都会记录实际结果，抓取失败也会保留在数据中。</p></div>}
-        </section><footer className="sc-footer"><span>◇ ROBOFORGE · 从要求到数据</span><Link to="/">返回传送带 Demo ↗</Link></footer>
-      </main>
+        </section>
+      </div>
     </div>
-  </div>
+  </ExperimentWorkspace>
 }

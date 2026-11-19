@@ -1,10 +1,10 @@
 .te-workbench {
-  --te-surface: var(--work-panel, #162229);
-  --te-raised: #1b2a31;
-  --te-edge: var(--work-edge, #30424a);
-  --te-ink: var(--work-ink, #eef3ed);
-  --te-muted: var(--work-muted, #a7b9b9);
-  --te-accent: var(--work-accent, #b8e889);
+  --te-surface: var(--work-panel);
+  --te-raised: var(--work-raised);
+  --te-edge: var(--work-edge);
+  --te-ink: var(--work-ink);
+  --te-muted: var(--work-muted);
+  --te-accent: var(--work-accent);
   --te-teal: #91d5c8;
   --te-bad: #ffb5a6;
   --te-attention: #f1cb85;
@@ -44,8 +44,8 @@
   font-weight: 600;
 }
 .te-button:hover { border-color: var(--te-teal); }
-.te-primary { color: #142217; background: var(--te-accent); border-color: var(--te-accent); }
-.te-primary:hover { color: #142217; background: #c8f19c; border-color: #c8f19c; }
+.te-primary { color: var(--work-on-accent); background: var(--te-accent); border-color: var(--te-accent); }
+.te-primary:hover { background: var(--work-accent-hover); border-color: var(--work-accent-hover); }
 
 .te-checkpoint {
   display: flex;
@@ -118,7 +118,7 @@
   background: #19272e;
 }
 .te-run:hover { background: var(--te-raised); border-color: #516768; }
-.te-run[aria-current='true'] { border-color: #6d9687; background: #213733; box-shadow: inset 2px 0 var(--te-accent); }
+.te-run[aria-current='true'] { border-color: var(--work-edge-strong); background: var(--work-selected); box-shadow: inset 2px 0 var(--te-accent); }
 .te-run-top,
 .te-run-middle,
 .te-run-bottom { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; min-width: 0; }

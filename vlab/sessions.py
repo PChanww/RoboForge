@@ -9,6 +9,8 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from .engine import PlatformEnv
+from .omni_instruction import MODEL_ID as OMNI_VLA, UnsupportedInstruction, validate_target
+from .scene_assets import valid_id
 from .schema import ProjectConfig
 
 
@@ -27,10 +29,15 @@ class Session:
         self._token = None
         self.epoch = 0
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"sim-{self.id[:6]}")
-        self.env = self._executor.submit(PlatformEnv, config, lab_root, robot_id, controller_id).result()
+        try:
+            self.env = self._executor.submit(PlatformEnv, config, lab_root, robot_id, controller_id).result()
+        except Exception:
+            self._executor.shutdown(wait=True)
+            raise
         self.env.session_id = self.id
         self.epoch = self.env.epoch
         self._policy_runners = {}
+        self._policy_context = None
 
     def submit(self, fn, *args, **kwargs):
         return self._executor.submit(fn, *args, **kwargs).result()
@@ -39,6 +46,7 @@ class Session:
         def _run():
             obs = self.env.reset(seed)
             self.epoch = self.env.epoch  # env owns epoch; session mirrors it
+            self._policy_context = None
             for runner in self._policy_runners.values():
                 runner.reset()
             return {"observation": obs, "epoch": self.epoch}
@@ -88,17 +96,40 @@ class Session:
         return self.submit(_run)
 
     def policy(self, token, model_id: str = "hackathon_vla_bc", epoch=None, steps: int = 1,
-               instruction: str | None = None):
+               instruction: str | None = None, start: bool = False):
+        model_id = valid_id(model_id)
         n = max(1, min(int(steps or 1), 50))
         def _run():
             self._guard(token, None, epoch)
+            tick = self.env.scheduler.tick
+            new_run = start or self._policy_context != (model_id, instruction, tick)
+            target = None
+            if model_id == OMNI_VLA and new_run:
+                try:
+                    target = validate_target(
+                        instruction,
+                        cup_asset=self.env.config.task.asset,
+                        dynamic_ids={node.node_id for node in self.env.config.scene.asset_nodes if node.role == "dynamic"},
+                    )
+                except UnsupportedInstruction as exc:
+                    self._policy_context = None
+                    for _ in range(n):
+                        obs = self.env.advance()
+                    return {**obs, "metrics": self.env.metrics(), "policy_model": model_id,
+                            "last_action": None, "instruction_warning": str(exc)}
             runner = self._policy_runners.get(model_id)
             if runner is None:
                 smolvla_stats = self.env.lab_root / "datasets" / "models" / model_id / "so100_stats.json"
                 if smolvla_stats.is_file():
                     import json as _json
                     st = _json.loads(smolvla_stats.read_text(encoding="utf-8"))
+                    controller = self.env.controller
+                    if controller.mode != "cartesian_delta_ik" or controller.action_dim != 4:
+                        raise ValueError("SmolVLA requires four-channel Cartesian delta IK")
                     obs0 = self.env.observation()
+                    missing = sorted(set(st.get("state_joints") or []) - obs0["state"]["joint_pos"].keys())
+                    if missing:
+                        raise ValueError(f"SmolVLA requires joint state for: {', '.join(missing)}")
                     imgs0 = obs0.get("images") or {}
                     for cam in (st.get("camera_keys") or ["front", "wrist"]):
                         frame = imgs0.get(cam)
@@ -110,7 +141,12 @@ class Session:
                     from .visual_infer import VisualPolicyRunner
                     runner = VisualPolicyRunner(self.env.lab_root, model_id)
                 self._policy_runners[model_id] = runner
-            if self.env.scheduler.tick == 0:
+            if target is not None:
+                runner.reset()
+                metrics = self.env.metrics()
+                if metrics.get("active_target") != target or metrics.get("success"):
+                    self.env.set_active_target(target)
+            elif tick == 0:
                 self.env.select_target_for_instruction(instruction)
                 runner.reset()
             obs = None
@@ -121,6 +157,7 @@ class Session:
                 obs = self.env.step(action)
                 if self.env.metrics().get("success"):
                     break
+            self._policy_context = (model_id, instruction, self.env.scheduler.tick)
             return {**obs, "metrics": self.env.metrics(), "policy_model": model_id, "last_action": last_action}
         return self.submit(_run)
 

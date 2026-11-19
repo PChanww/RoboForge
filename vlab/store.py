@@ -56,14 +56,17 @@ class ConfigStore:
 
 def validate_config(config: ProjectConfig, lab_root: Path):
     """Static + physics-build validation. Returns a list of issue strings (empty = ok)."""
+    from .compat import select_controller
     from .engine import PlatformEnv
     issues = []
+    has_runnable_robot = False
     for robot in config.robots:
-        has5r = {"waist", "shoulder", "elbow", "wrist_pitch", "wrist_yaw"} <= {j.name for j in robot.joints}
-        ctrl = next((c.id for c in config.controllers
-                     if (c.mode == "cartesian_delta_ik") == has5r), config.controllers[0].id)
+        ctrl = select_controller(config, robot)
+        if ctrl is None:
+            continue
+        has_runnable_robot = True
         try:
-            env = PlatformEnv(config, lab_root, robot_id=robot.id, controller_id=ctrl)
+            env = PlatformEnv(config, lab_root, robot_id=robot.id, controller_id=ctrl.id)
             env.close()
         except Exception as exc:
             issues.append(f"robot {robot.id}: scene build failed: {exc}")
@@ -80,4 +83,6 @@ def validate_config(config: ProjectConfig, lab_root: Path):
                             unreachable += 1
             if unreachable:
                 issues.append(f"robot {robot.id}: {unreachable} task-region IK targets unreachable")
+    if not has_runnable_robot:
+        issues.append("project requires at least one compatible robot/controller pair")
     return issues
