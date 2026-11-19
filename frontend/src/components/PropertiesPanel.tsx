@@ -1,5 +1,3 @@
-import { useEffect, useState } from 'react'
-import { api } from '../api'
 import { useStore, activeRobot } from '../store'
 import { Field, NumberInput, Vec3Input, Section, Slider } from './ui'
 
@@ -132,29 +130,16 @@ function SensorEditor({ id }: { id: string }) {
 function TaskEditor() {
   const config = useStore((s) => s.config)!
   const edit = useStore((s) => s.edit)
-  const [assets, setAssets] = useState<any[]>([])
-  useEffect(() => {
-    api.assetLibrary().then((r) => setAssets(r.assets || [])).catch(() => {})
-  }, [])
   const t = config.task
   const upd = (patch: any) => edit((c) => { Object.assign(c.task, patch) })
-  const choices = assets.filter((a) =>
-    a.category === 'object' && (a.source === 'builtin' || (a.calibrated !== false && a.role !== 'visual_only' && a.kind !== 'static_prop'))
-  )
-  const hasCurrent = choices.some((a) => a.id === t.asset)
-  const half = t.goal_half_extents || [0.074, 0.069]
-  const surface = t.goal_surface_m ?? 0.009
-  const showBuiltin = t.show_builtin_tray !== false
   return (
     <Section title="抓放任务">
       <Field label="资产">
         <select value={t.asset} onChange={(e) => upd({ asset: e.target.value })}>
-          {!hasCurrent && t.asset && <option value={t.asset}>{t.asset}</option>}
-          {choices.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.source === 'builtin' ? `${a.name} (${a.id})` : `${a.id} · calibrated`}
-            </option>
-          ))}
+          <option value="standard">标准杯</option>
+          <option value="tall">高杯</option>
+          <option value="wide">宽口杯</option>
+          <option value="imported/lux3d-ivory">Lux3D 杯</option>
         </select>
       </Field>
       <Field label="语言指令"><input type="text" value={t.instruction} onChange={(e) => upd({ instruction: e.target.value })} /></Field>
@@ -164,23 +149,6 @@ function TaskEditor() {
           <NumberInput value={t.goal_xy[1]} onChange={(v) => upd({ goal_xy: [t.goal_xy[0], v] })} />
         </div>
       </Field>
-      <Field label="目标放置面高度 goal_surface_m (m)">
-        <NumberInput step={0.001} value={surface} onChange={(v) => upd({ goal_surface_m: v })} />
-      </Field>
-      <Field label="目标托盘半尺寸 X / Y (m)">
-        <div className="grid grid-cols-2 gap-1">
-          <NumberInput step={0.005} value={half[0]} onChange={(v) => upd({ goal_half_extents: [v, half[1]] })} />
-          <NumberInput step={0.005} value={half[1]} onChange={(v) => upd({ goal_half_extents: [half[0], v] })} />
-        </div>
-      </Field>
-      <label className="flex items-center gap-2 text-xs text-muted mt-1">
-        <input type="checkbox" className="!w-auto" checked={showBuiltin}
-          onChange={(e) => upd({ show_builtin_tray: e.target.checked, ...(e.target.checked ? { goal_tray_collider_ref: null } : {}) })} />
-        显示默认绿色托盘几何
-      </label>
-      {t.goal_tray_collider_ref && (
-        <div className="text-[11px] text-accent mt-1">自定义托盘碰撞体：{t.goal_tray_collider_ref}</div>
-      )}
       <Field label="时间上限 (s)"><NumberInput step={0.5} value={t.time_limit_s} onChange={(v) => upd({ time_limit_s: v })} /></Field>
     </Section>
   )
@@ -196,11 +164,7 @@ function RobotEditor({ id }: { id: string }) {
         onChange={(e) => edit((c) => { c.robots.find((x) => x.id === id)!.end_effector = e.target.value })} /></Field>
       <Field label="工具偏移 (m)"><NumberInput value={r.tool_offset_m}
         onChange={(v) => edit((c) => { c.robots.find((x) => x.id === id)!.tool_offset_m = v })} /></Field>
-      <div className="text-[11px] text-muted mb-2">连杆 {r.links.length} · 关节 {r.joints.filter((j) => j.type !== 'fixed').length} · 执行器 {r.actuators.length}</div>
-      <a className="inline-block text-xs text-accent border border-edge rounded px-2 py-1 hover:bg-panel"
-        href={api.robotUrdfUrl(config.project_id, r.id)} download={`${config.project_id}-${r.id}.urdf`}>
-        导出标准 URDF 文件
-      </a>
+      <div className="text-[11px] text-muted">连杆 {r.links.length} · 关节 {r.joints.filter((j) => j.type !== 'fixed').length} · 执行器 {r.actuators.length}</div>
     </Section>
   )
 }

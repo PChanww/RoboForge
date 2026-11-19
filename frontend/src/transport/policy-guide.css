@@ -1,0 +1,48 @@
+.tt-policy-guide {
+  grid-column: 1 / -1;
+  padding: clamp(17px, 2.1vw, 27px);
+}
+
+.tt-policy-guide h2 {
+  color: #31513b;
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.tt-policy-guide__steps {
+  margin: 7px 0 17px;
+  color: #536b51;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.tt-policy-guide__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 232px), 1fr));
+  gap: 10px;
+}
+
+.tt-policy-guide article {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid #d9e4d6;
+  border-radius: 8px;
+  background: #f8faf4;
+}
+
+.tt-policy-guide article.is-current { border-color: #829f76; background: #eaf2e5; }
+.tt-policy-guide h3 { display: flex; flex-wrap: wrap; gap: 5px 8px; align-items: center; color: #294735; font-size: 14px; font-weight: 680; }
+.tt-policy-guide h3 span { padding: 2px 5px; border-radius: 4px; background: #d9e9d0; color: #355b35; font-size: 10px; }
+.tt-policy-guide article p { margin-top: 6px; color: #53694f; font-size: 12px; line-height: 1.65; }
+.tt-policy-guide article p.tt-policy-guide__input { color: #3a593d; font-weight: 600; }
+
+.tt-stop-status {
+  margin-bottom: 14px;
+  padding: 11px 14px;
+  border: 1px solid #a8bb98;
+  border-radius: 8px;
+  background: #ecf3e5;
+  color: #3e5c36;
+  font-size: 13px;
+  line-height: 1.65;
+}
