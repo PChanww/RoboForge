@@ -1,0 +1,449 @@
+{
+  "summary": {
+    "model_id": "so100_smolvla_omni",
+    "two_object_disambiguation": {
+      "all": {
+        "passed": 9,
+        "total": 12,
+        "rate": 0.75
+      },
+      "seen": {
+        "passed": 4,
+        "total": 4,
+        "rate": 1.0
+      },
+      "unseen": {
+        "passed": 3,
+        "total": 4,
+        "rate": 0.75
+      },
+      "swapped": {
+        "passed": 2,
+        "total": 4,
+        "rate": 0.5
+      },
+      "clean_single_target_in_tray": {
+        "passed": 9,
+        "total": 12,
+        "rate": 0.75
+      }
+    },
+    "default_5cups_multiseed": {
+      "all": {
+        "passed": 15,
+        "total": 15,
+        "rate": 1.0
+      },
+      "seen": {
+        "passed": 5,
+        "total": 5,
+        "rate": 1.0
+      },
+      "unseen": {
+        "passed": 10,
+        "total": 10,
+        "rate": 1.0
+      }
+    }
+  },
+  "suite1_two_object": [
+    {
+      "success": true,
+      "ticks": 74,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "seed": 0,
+      "seen": true,
+      "swapped": false,
+      "object_xy": null,
+      "target": "cup",
+      "instruction": "Pick up the blue cup and place it inside the tray.",
+      "other_object_in_tray": false
+    },
+    {
+      "success": true,
+      "ticks": 74,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "companion_cube",
+      "seed": 0,
+      "seen": true,
+      "swapped": false,
+      "object_xy": null,
+      "target": "companion_cube",
+      "instruction": "Pick up the orange cube and place it inside the tray.",
+      "other_object_in_tray": false
+    },
+    {
+      "success": true,
+      "ticks": 72,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "seed": 1,
+      "seen": true,
+      "swapped": false,
+      "object_xy": null,
+      "target": "cup",
+      "instruction": "Pick up the blue cup and place it inside the tray.",
+      "other_object_in_tray": false
+    },
+    {
+      "success": true,
+      "ticks": 78,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "companion_cube",
+      "seed": 1,
+      "seen": true,
+      "swapped": false,
+      "object_xy": null,
+      "target": "companion_cube",
+      "instruction": "Pick up the orange cube and place it inside the tray.",
+      "other_object_in_tray": false
+    },
+    {
+      "success": false,
+      "ticks": 160,
+      "grasped": true,
+      "lifted": false,
+      "tray_contact": false,
+      "active_target": "cup",
+      "seed": 10,
+      "seen": false,
+      "swapped": false,
+      "object_xy": null,
+      "target": "cup",
+      "instruction": "Pick up the blue cup and place it inside the tray.",
+      "other_object_in_tray": false
+    },
+    {
+      "success": true,
+      "ticks": 80,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "companion_cube",
+      "seed": 10,
+      "seen": false,
+      "swapped": false,
+      "object_xy": null,
+      "target": "companion_cube",
+      "instruction": "Pick up the orange cube and place it inside the tray.",
+      "other_object_in_tray": false
+    },
+    {
+      "success": true,
+      "ticks": 78,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "seed": 11,
+      "seen": false,
+      "swapped": false,
+      "object_xy": null,
+      "target": "cup",
+      "instruction": "Pick up the blue cup and place it inside the tray.",
+      "other_object_in_tray": false
+    },
+    {
+      "success": true,
+      "ticks": 80,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "companion_cube",
+      "seed": 11,
+      "seen": false,
+      "swapped": false,
+      "object_xy": null,
+      "target": "companion_cube",
+      "instruction": "Pick up the orange cube and place it inside the tray.",
+      "other_object_in_tray": false
+    },
+    {
+      "success": false,
+      "ticks": 160,
+      "grasped": false,
+      "lifted": false,
+      "tray_contact": false,
+      "active_target": "cup",
+      "seed": 20,
+      "seen": false,
+      "swapped": true,
+      "object_xy": {
+        "cup": [
+          -0.01,
+          -0.06
+        ],
+        "companion_cube": [
+          -0.14,
+          -0.06
+        ]
+      },
+      "target": "cup",
+      "instruction": "Pick up the blue cup and place it inside the tray.",
+      "other_object_in_tray": true
+    },
+    {
+      "success": false,
+      "ticks": 160,
+      "grasped": false,
+      "lifted": false,
+      "tray_contact": false,
+      "active_target": "companion_cube",
+      "seed": 20,
+      "seen": false,
+      "swapped": true,
+      "object_xy": {
+        "cup": [
+          -0.01,
+          -0.06
+        ],
+        "companion_cube": [
+          -0.14,
+          -0.06
+        ]
+      },
+      "target": "companion_cube",
+      "instruction": "Pick up the orange cube and place it inside the tray.",
+      "other_object_in_tray": false
+    },
+    {
+      "success": true,
+      "ticks": 84,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "seed": 21,
+      "seen": false,
+      "swapped": true,
+      "object_xy": {
+        "cup": [
+          -0.14,
+          -0.06
+        ],
+        "companion_cube": [
+          -0.01,
+          -0.06
+        ]
+      },
+      "target": "cup",
+      "instruction": "Pick up the blue cup and place it inside the tray.",
+      "other_object_in_tray": false
+    },
+    {
+      "success": true,
+      "ticks": 74,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "companion_cube",
+      "seed": 21,
+      "seen": false,
+      "swapped": true,
+      "object_xy": {
+        "cup": [
+          -0.14,
+          -0.06
+        ],
+        "companion_cube": [
+          -0.01,
+          -0.06
+        ]
+      },
+      "target": "companion_cube",
+      "instruction": "Pick up the orange cube and place it inside the tray.",
+      "other_object_in_tray": false
+    }
+  ],
+  "suite2_5cups": [
+    {
+      "success": true,
+      "ticks": 76,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "asset": "standard",
+      "seed": 0,
+      "seen": true,
+      "instruction": "Pick up the standard cup and place it inside the tray."
+    },
+    {
+      "success": true,
+      "ticks": 84,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "asset": "standard",
+      "seed": 6,
+      "seen": false,
+      "instruction": "Pick up the standard cup and place it inside the tray."
+    },
+    {
+      "success": true,
+      "ticks": 80,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "asset": "standard",
+      "seed": 7,
+      "seen": false,
+      "instruction": "Pick up the standard cup and place it inside the tray."
+    },
+    {
+      "success": true,
+      "ticks": 74,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "asset": "tall",
+      "seed": 0,
+      "seen": true,
+      "instruction": "Pick up the tall cup and place it inside the tray."
+    },
+    {
+      "success": true,
+      "ticks": 74,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "asset": "tall",
+      "seed": 6,
+      "seen": false,
+      "instruction": "Pick up the tall cup and place it inside the tray."
+    },
+    {
+      "success": true,
+      "ticks": 74,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "asset": "tall",
+      "seed": 7,
+      "seen": false,
+      "instruction": "Pick up the tall cup and place it inside the tray."
+    },
+    {
+      "success": true,
+      "ticks": 94,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "asset": "wide",
+      "seed": 0,
+      "seen": true,
+      "instruction": "Pick up the wide cup and place it inside the tray."
+    },
+    {
+      "success": true,
+      "ticks": 86,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "asset": "wide",
+      "seed": 6,
+      "seen": false,
+      "instruction": "Pick up the wide cup and place it inside the tray."
+    },
+    {
+      "success": true,
+      "ticks": 80,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "asset": "wide",
+      "seed": 7,
+      "seen": false,
+      "instruction": "Pick up the wide cup and place it inside the tray."
+    },
+    {
+      "success": true,
+      "ticks": 74,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "asset": "imported/lux3d-blue-live-5887561",
+      "seed": 0,
+      "seen": true,
+      "instruction": "Pick up the blue cup and place it inside the tray."
+    },
+    {
+      "success": true,
+      "ticks": 73,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "asset": "imported/lux3d-blue-live-5887561",
+      "seed": 6,
+      "seen": false,
+      "instruction": "Pick up the blue cup and place it inside the tray."
+    },
+    {
+      "success": true,
+      "ticks": 74,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "asset": "imported/lux3d-blue-live-5887561",
+      "seed": 7,
+      "seen": false,
+      "instruction": "Pick up the blue cup and place it inside the tray."
+    },
+    {
+      "success": true,
+      "ticks": 78,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "asset": "imported/cup-web",
+      "seed": 0,
+      "seen": true,
+      "instruction": "Pick up the ceramic tumbler and place it inside the tray."
+    },
+    {
+      "success": true,
+      "ticks": 78,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "asset": "imported/cup-web",
+      "seed": 6,
+      "seen": false,
+      "instruction": "Pick up the ceramic tumbler and place it inside the tray."
+    },
+    {
+      "success": true,
+      "ticks": 70,
+      "grasped": true,
+      "lifted": true,
+      "tray_contact": true,
+      "active_target": "cup",
+      "asset": "imported/cup-web",
+      "seed": 7,
+      "seen": false,
+      "instruction": "Pick up the ceramic tumbler and place it inside the tray."
+    }
+  ]
+}

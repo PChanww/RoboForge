@@ -56,9 +56,12 @@ def _default_pretrained_paths(lab: Path) -> tuple[Path, Path]:
 def _resize_chw_256(img: torch.Tensor) -> torch.Tensor:
     if img.shape[0] != 3:
         img = img.permute(2, 0, 1)
+    was_u8 = img.dtype == torch.uint8
     if img.shape[1] != 256 or img.shape[2] != 256:
-        img = F.interpolate(img.unsqueeze(0), size=(256, 256), mode="bilinear", align_corners=False)[0]
-    return img
+        img = F.interpolate(img.float().unsqueeze(0), size=(256, 256), mode="bilinear", align_corners=False)[0]
+    if was_u8:
+        return img.round().clamp_(0, 255).to(torch.uint8)
+    return (img * 255.0).round().clamp_(0, 255).to(torch.uint8)
 
 
 def _load_dataset(ds: LeRobotDataset, camera_keys: list[str], chunk_size: int):
@@ -132,6 +135,7 @@ def main():
     ap.add_argument("--steps", type=int, default=400)
     ap.add_argument("--epochs", type=int, default=None, help="Optional epoch override to compute steps")
     ap.add_argument("--batch-size", type=int, default=8)
+    ap.add_argument("--cache-bs", type=int, default=8)
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--device", default="auto")
     args = ap.parse_args()
@@ -160,12 +164,33 @@ def main():
     act_dim = int(act_chunks.shape[2])
 
     unique_eps = sorted(np.unique(ep).tolist())
-    n_ep = len(unique_eps)
-    n_tr = max(1, min(n_ep - 1, int(round(0.7 * n_ep))))
-    tr_set = set(unique_eps[:n_tr])
-    rest = unique_eps[n_tr:]
-    va_set = set(rest[:max(1, len(rest) // 2)])
-    gen_set = set(rest[max(1, len(rest) // 2):]) or va_set
+    ep_task = {}
+    for e_val, t_val in zip(ep.tolist(), tasks):
+        ei = int(e_val)
+        if ei not in ep_task:
+            ep_task[ei] = str(t_val)
+    by_task: dict[str, list[int]] = {}
+    for e_val in unique_eps:
+        by_task.setdefault(ep_task[e_val], []).append(e_val)
+    tr_set, va_set, gen_set = set(), set(), set()
+    for grp in by_task.values():
+        if len(grp) <= 1:
+            tr_set.update(grp)
+        elif len(grp) == 2:
+            tr_set.add(grp[0])
+            va_set.add(grp[1])
+            gen_set.add(grp[1])
+        else:
+            n_tr_g = max(1, min(len(grp) - 1, int(round(0.8 * len(grp)))))
+            tr_set.update(grp[:n_tr_g])
+            tail = grp[n_tr_g:]
+            mid = max(1, len(tail) // 2)
+            va_set.update(tail[:mid])
+            gen_set.update(tail[mid:] or tail[:mid])
+    if not va_set:
+        va_set = set(tr_set)
+    if not gen_set:
+        gen_set = set(va_set)
     tr = np.isin(ep, list(tr_set))
     va = np.isin(ep, list(va_set))
     gen = np.isin(ep, list(gen_set))
@@ -230,12 +255,12 @@ def main():
     n_total = len(state)
     cached_embs = []
     cached_masks = []
-    cache_bs = 16
+    cache_bs = max(1, int(args.cache_bs))
     policy.eval()
     t_cache0 = time.perf_counter()
     for start in range(0, n_total, cache_bs):
         end = min(n_total, start + cache_bs)
-        mini = {f"observation.images.{c}": cam_tensors[c][start:end].to(dev) for c in camera_keys}
+        mini = {f"observation.images.{c}": cam_tensors[c][start:end].to(dev, dtype=torch.float32) / 255.0 for c in camera_keys}
         imgs, img_masks = policy.prepare_images(mini)
         b = end - start
         lt = lang_ids[start:end]
@@ -339,7 +364,7 @@ def main():
                 "observation.state": sn[sub].to(dev),
                 "observation.language.tokens": lang_ids[sub],
                 "observation.language.attention_mask": lang_mask[sub],
-                **{f"observation.images.{c}": cam_tensors[c][sub].to(dev) for c in camera_keys},
+                **{f"observation.images.{c}": cam_tensors[c][sub].to(dev, dtype=torch.float32) / 255.0 for c in camera_keys},
             }
             zero_noise = torch.zeros((b, cfg.chunk_size, cfg.max_action_dim), device=dev, dtype=torch.float32)
             with torch.amp.autocast(device_type=dev.type, dtype=torch.bfloat16, enabled=use_bf16):

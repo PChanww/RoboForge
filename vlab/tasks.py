@@ -68,15 +68,32 @@ def spawn_xy(task: TaskConfig, seed):
 class Judge:
     """Contact-based success: bilateral grasp, lift, upright rest in tray after release."""
 
-    def __init__(self, model, data, task: TaskConfig, radius, height):
+    def __init__(
+        self,
+        model,
+        data,
+        task: TaskConfig,
+        radius,
+        height,
+        *,
+        body_name: str = "cup",
+        geom_prefix: str = "cup_contact",
+        freejoint_name: str = "cup_free",
+    ):
         self.model, self.data, self.task = model, data, task
         self.radius, self.height = radius, height
-        self.cup = model.body("cup").id
+        self.body_name = body_name
+        self.cup = model.body(body_name).id
         self.cup_geoms = {
             gid for gid in range(model.ngeom)
-            if (model.geom(gid).name == "cup_contact" or model.geom(gid).name.startswith("cup_contact_"))
+            if (model.geom(gid).name == geom_prefix or model.geom(gid).name.startswith(f"{geom_prefix}_"))
         }
-        self.cup_geom = model.geom("cup_contact").id
+        if not self.cup_geoms:
+            self.cup_geoms = {
+                gid for gid in range(model.ngeom)
+                if int(model.geom_bodyid[gid]) == self.cup and int(model.geom_group[gid]) != 2
+            }
+        self.cup_geom = sorted(self.cup_geoms)[0]
         tray_name = getattr(task, "goal_tray_collider_ref", None) or "tray"
         base_prefix = tray_name[:-7] if tray_name.endswith("_part_0") else tray_name
         matched = [
@@ -88,7 +105,7 @@ class Judge:
         self.tray_geoms = set(matched)
         self.tray_geom = matched[0]
         self.tray_half = _tray_half(task)
-        self.cup_dofadr = int(model.joint("cup_free").dofadr[0])
+        self.cup_dofadr = int(model.joint(freejoint_name).dofadr[0])
         self.pads = {model.geom(n).id for n in ("left_pad", "right_pad")}
         self.start_xyz = data.xpos[self.cup].copy()
         self.reset()
@@ -121,7 +138,8 @@ class Judge:
         upright = self.data.xmat[self.cup, 8] > .93
         v_lin = self.data.qvel[self.cup_dofadr : self.cup_dofadr + 3]
         v_ang = self.data.qvel[self.cup_dofadr + 3 : self.cup_dofadr + 6]
-        resting = (abs(cup[2] - self.height / 2 - self.task.goal_surface_m) < .006
+        rest_offset = self.height / 2 if self.body_name == "cup" else 0.0
+        resting = (abs(cup[2] - rest_offset - self.task.goal_surface_m) < .006
                    and np.linalg.norm(v_lin) < .018
                    and np.linalg.norm(v_ang) < .30)
         released = contacts == 0 and grip_target > open_m - .009

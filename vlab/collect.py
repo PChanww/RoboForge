@@ -127,13 +127,19 @@ def collect(config: ProjectConfig, lab_root: Path, plan: list[dict], out_dir: Pa
     try:
         rows = []
         for i, item in enumerate(plan):
-            cfg = config.model_copy(deep=True)
+            base_cfg = item.get("config") or config
+            cfg = base_cfg.model_copy(deep=True)
             cfg.task.asset = item["asset"]
-            instruction = (item.get("instruction") or config.task.instruction or "").strip()
+            instruction = (item.get("instruction") or base_cfg.task.instruction or "").strip()
             if instruction:
                 cfg.task.instruction = instruction
             env.config = cfg
             env.reset(item["seed"])
+            if item.get("object_xy"):
+                for tgt_k, xy_val in item["object_xy"].items():
+                    env.set_object_xy(tgt_k, xy_val)
+            if item.get("active_target"):
+                env.set_active_target(item["active_target"])
             # Preroll the existing Cartesian expert with an open gripper until
             # configured sensor latency has made the first frames observable.
             warmup = int(np.ceil(max((s.latency_s for s in cfg.sensors), default=0) * env.controller.frequency_hz)) + 2
@@ -161,6 +167,8 @@ def collect(config: ProjectConfig, lab_root: Path, plan: list[dict], out_dir: Pa
             row = {"index": i, "asset": item["asset"], "seed": env.seed, "frames": len(rec.frame_time),
                    "success": bool(success), "duration_s": float(rec.frame_time[-1]),
                    "instruction": instruction,
+                   "active_target": item.get("active_target") or "cup",
+                   "scene_tag": item.get("scene_tag") or cfg.project_id,
                    "control_source": source}
             rows.append(row)
             print(i, row, flush=True)

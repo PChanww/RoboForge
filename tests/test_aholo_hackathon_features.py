@@ -725,3 +725,85 @@ def test_smolvla_shared_worker_reused_and_evicted(tmp_path, monkeypatch):
     finally:
         smolvla_infer.close_all_smolvla_workers()
         assert started[-1].closed is True
+
+
+def test_multi_target_active_switching_and_expert_grasp(tmp_path):
+    from vlab.hackathon_demo import setup_hackathon_demo
+
+    lab = _make_lab(tmp_path)
+    store = ConfigStore(lab / "projects")
+    setup_hackathon_demo(lab, store, project_id="hack_test", with_world_background=False)
+    cfg = store.load("hack_test")
+    env = PlatformEnv(cfg, lab)
+    try:
+        for tgt, cup_xy, cube_xy in (
+            ("cup", [-0.14, -0.06], [-0.01, -0.06]),
+            ("companion_cube", [-0.14, -0.06], [-0.01, -0.06]),
+        ):
+            env.reset(0)
+            env.set_object_xy("cup", cup_xy)
+            env.set_object_xy("companion_cube", cube_xy)
+            m0 = env.set_active_target(tgt)
+            assert m0["active_target"] == tgt
+            ok = False
+            for _ in range(160):
+                env.step(env.servo_expert_action())
+                m = env.metrics()
+                if m["success"]:
+                    ok = True
+                    break
+            assert ok is True, f"expert failed for {tgt}: {m}"
+    finally:
+        env.close()
+
+
+def test_select_target_for_instruction(tmp_path):
+    from vlab.hackathon_demo import setup_hackathon_demo
+
+    lab = _make_lab(tmp_path)
+    store = ConfigStore(lab / "projects")
+    setup_hackathon_demo(lab, store, project_id="hack_test", with_world_background=False)
+    hack_cfg = store.load("hack_test")
+    env = PlatformEnv(hack_cfg, lab)
+    try:
+        assert env.select_target_for_instruction("Pick up the orange cube and place it inside the tray.") == "companion_cube"
+        assert env.metrics()["active_target"] == "companion_cube"
+        assert env.select_target_for_instruction("Pick up the blue cup and place it inside the tray.") == "cup"
+        assert env.metrics()["active_target"] == "cup"
+    finally:
+        env.close()
+
+    def_cfg = store.load("default")
+    env2 = PlatformEnv(def_cfg, lab)
+    try:
+        assert env2.select_target_for_instruction("Pick up the orange cube and place it inside the tray.") == "cup"
+    finally:
+        env2.close()
+
+
+def test_collect_records_active_target_and_object_xy(tmp_path):
+    from vlab.collect import collect
+    from vlab.hackathon_demo import setup_hackathon_demo
+
+    lab = _make_lab(tmp_path)
+    store = ConfigStore(lab / "projects")
+    setup_hackathon_demo(lab, store, project_id="hack_test", with_world_background=False)
+    hack_cfg = store.load("hack_test")
+    out_dir = tmp_path / "staging"
+    plan = [
+        {
+            "config": hack_cfg,
+            "asset": hack_cfg.task.asset,
+            "seed": 0,
+            "active_target": "companion_cube",
+            "object_xy": {"cup": [-0.14, -0.06], "companion_cube": [-0.01, -0.06]},
+            "instruction": "Pick up the orange cube and place it inside the tray.",
+            "scene_tag": "hack_test",
+        }
+    ]
+    manifest = collect(hack_cfg, lab, plan, out_dir, max_ticks=160)
+    assert manifest["summary"]["episodes"] == 1
+    assert manifest["summary"]["successes"] == 1
+    assert manifest["episodes"][0]["active_target"] == "companion_cube"
+    assert manifest["episodes"][0]["instruction"] == "Pick up the orange cube and place it inside the tray."
+    assert manifest["episodes"][0]["scene_tag"] == "hack_test"

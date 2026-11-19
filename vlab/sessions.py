@@ -111,6 +111,7 @@ class Session:
                     runner = VisualPolicyRunner(self.env.lab_root, model_id)
                 self._policy_runners[model_id] = runner
             if self.env.scheduler.tick == 0:
+                self.env.select_target_for_instruction(instruction)
                 runner.reset()
             obs = None
             last_action = None

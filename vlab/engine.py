@@ -179,11 +179,89 @@ class PlatformEnv:
         fps = {s.id: s.fps for s in self.config.sensors}
         self.scheduler = Scheduler(self.config.scene.physics_dt, self.controller.frequency_hz, fps)
         self._latency = {s.id: s.latency_s for s in self.config.sensors}
+        self._active_target = "cup"
+        self._active_radius = self._asset_radius
+        self._active_height = self._asset_height
         self._judge = tasks.Judge(self.model, self.data, self.config.task, self._asset_radius, self._asset_height)
         self._buffers = {s.id: CameraBuffer() for s in self.config.sensors}
         self._capture_all(0.0)
         self._sample_state(0.0)
         return self.observation()
+
+    def set_active_target(self, target_id: str = "cup") -> dict:
+        """Switch the active grasp target & Judge between 'cup' and a dynamic asset_node."""
+        tid = (target_id or "cup").strip()
+        if tid == "cup":
+            self._active_target = "cup"
+            self._active_radius = float(self._asset_radius)
+            self._active_height = float(self._asset_height)
+            self._judge = tasks.Judge(self.model, self.data, self.config.task, self._active_radius, self._active_height)
+        else:
+            dyn = (self._state or {}).get("dynamic_objects") or {}
+            if tid not in dyn:
+                raise ValueError(f"Unknown dynamic target {tid!r}; available: {['cup', *sorted(dyn)]}")
+            cols = dyn[tid].get("colliders") or []
+            if cols:
+                sx, sy, sz = cols[0].get("size_m") or [0.036, 0.036, 0.036]
+                r = 0.5 * float(max(sx, sy))
+                h = float(sz)
+            else:
+                r, h = 0.018, 0.036
+            self._active_target = tid
+            self._active_radius = r
+            self._active_height = h
+            self._judge = tasks.Judge(
+                self.model,
+                self.data,
+                self.config.task,
+                r,
+                h,
+                body_name=f"node_{tid}",
+                geom_prefix=f"node_{tid}_col",
+                freejoint_name=f"node_{tid}_free",
+            )
+        self._servo_phase = 0
+        self._servo_dwell = 0
+        return self.metrics()
+
+    def set_object_xy(self, target_id: str, xy: list[float] | tuple[float, float]) -> None:
+        """Reposition a freejoint object cleanly onto the work surface before episode rollout."""
+        ws_z = float(self.config.scene.work_surface_z)
+        if target_id == "cup":
+            jname = "cup_free"
+            z = ws_z + float(self._asset_height) / 2.0 + 0.001
+        else:
+            jname = f"node_{target_id}_free"
+            # node_companion_cube mesh origin sits at bottom z=0 (scene_builder offset_z=0)
+            z = ws_z + 0.001
+        qadr = int(self.model.joint(jname).qposadr[0])
+        self.data.qpos[qadr : qadr + 3] = [float(xy[0]), float(xy[1]), float(z)]
+        self.data.qpos[qadr + 3 : qadr + 7] = [1.0, 0.0, 0.0, 0.0]
+        dadr = int(self.model.joint(jname).dofadr[0])
+        self.data.qvel[dadr : dadr + 6] = 0.0
+        mujoco.mj_forward(self.model, self.data)
+        mujoco.mj_step(self.model, self.data, nstep=25)
+        self._t0 = self.data.time
+        self._judge.start_xyz = self.data.xpos[self._judge.cup].copy()
+        self._judge.reset()
+        self._buffers = {s.id: CameraBuffer() for s in self.config.sensors}
+        self._capture_all(0.0)
+        self._sample_state(0.0)
+
+    def select_target_for_instruction(self, instruction: str | None) -> str:
+        """Auto-select active Judge target matching natural-language instruction when dynamic_objects exist."""
+        dyn = (self._state or {}).get("dynamic_objects") or {}
+        if not dyn or not instruction:
+            return getattr(self, "_active_target", "cup")
+        txt = instruction.strip().lower()
+        desired = None
+        if any(k in txt for k in ("cube", "block", "orange", "companion", "方块", "积木", "木块")):
+            desired = "companion_cube" if "companion_cube" in dyn else sorted(dyn)[0]
+        elif any(k in txt for k in ("cup", "tumbler", "canister", "mug", "杯", "罐")):
+            desired = "cup"
+        if desired and desired != getattr(self, "_active_target", "cup"):
+            self.set_active_target(desired)
+        return getattr(self, "_active_target", "cup")
 
     def episode_time(self):
         return self.data.time - self._t0
@@ -431,6 +509,7 @@ class PlatformEnv:
 
     def metrics(self):
         m = self._judge.metrics(self.scheduler.tick, self.scheduler.control_period)
+        m["active_target"] = getattr(self, "_active_target", "cup")
         m["terminated"] = bool(m["success"])
         m["truncated"] = self.episode_time() >= self.config.task.time_limit_s
         return m
@@ -469,9 +548,14 @@ class PlatformEnv:
         cup = self.data.xpos[self._judge.cup]
         goal = np.asarray(self.config.task.goal_xy)
         ws_z = float(self.config.scene.work_surface_z)
-        h, gs = self._asset_height, self.config.task.goal_surface_m
-        hover, grab = min(.176, ws_z + h / 2 + .09), ws_z + h / 2 + .002
-        lift, drop = min(.176, max(ws_z + h / 2 + .10, gs + h / 2 + .04)), gs + h / 2 + .002
+        h = float(getattr(self, "_active_height", self._asset_height))
+        clear_h = max(h, float(self._asset_height))
+        gs = self.config.task.goal_surface_m
+        ws_min_z = float(self.controller.workspace_min[2])
+        hover = min(.176, ws_z + clear_h / 2 + .09)
+        grab = max(ws_z + h / 2 + .002, ws_min_z + .001)
+        lift = min(.176, max(ws_z + h / 2 + .10, gs + h / 2 + .04))
+        drop = max(gs + h / 2 + .002, ws_min_z + .003)
         tol = .005
         g = self.robot.gripper
         mean = (self.data.qpos[self._qposadr[g.left_joint]] + self.data.qpos[self._qposadr[g.right_joint]]) / 2
