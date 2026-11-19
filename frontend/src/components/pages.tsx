@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { Button, Section } from './ui'
 import SceneCanvas from './SceneCanvas'
@@ -15,85 +15,55 @@ function useFetch<T>(fn: () => Promise<T>, deps: any[] = []) {
 function JobStatus({ s }: { s: string }) {
   const color = s === 'succeeded' ? 'text-accent' : s === 'failed' ? 'text-red-400'
     : s === 'running' ? 'text-yellow-300' : 'text-muted'
-  return <span className={color}>{s}</span>
+  const labels: Record<string, string> = {
+    queued: '排队中', running: '运行中', succeeded: '已完成', failed: '失败',
+    cancelled: '已停止', interrupted: '已中断',
+  }
+  return <span className={color}>{labels[s] ?? s}</span>
 }
 
-export function JobsTable({ filter }: { filter?: string }) {
-  const { data, reload } = useFetch(() => api.jobs(), [])
+export function JobsTable({ filter }: { filter?: string | string[] }) {
+  const { data, err, reload } = useFetch(() => api.jobs(), [])
+  const [stopError, setStopError] = useState('')
+  const [stopping, setStopping] = useState<string | null>(null)
   useEffect(() => { const t = setInterval(reload, 2500); return () => clearInterval(t) }, [reload])
-  const jobs = (data?.jobs || []).filter((j) => !filter || j.kind === filter || j.kind.startsWith(filter + '_'))
+  async function stop(jobId: string) {
+    setStopping(jobId)
+    setStopError('')
+    try {
+      await api.stopJob(jobId)
+      reload()
+    } catch (error) {
+      setStopError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setStopping(null)
+    }
+  }
+  if (!data) return err ? <p className="text-sm text-red-300" role="alert">读取任务失败。 <button onClick={reload} className="text-accent hover:underline">重试</button></p>
+    : <p className="text-sm text-muted" role="status">正在读取任务…</p>
+  const jobs = (data?.jobs || []).filter((j) => {
+    if (Array.isArray(filter)) return filter.includes(j.kind)
+    return !filter || j.kind === filter || j.kind.startsWith(filter + '_')
+  })
   return (
-    <table className="w-full text-xs">
+    <div>
+      {stopError && <p className="mb-2 text-sm text-red-300" role="alert">停止任务失败：{stopError}</p>}
+      <div className="overflow-x-auto"><table className="w-full min-w-[390px] text-xs">
       <thead><tr className="text-muted text-left"><th className="py-1">ID</th><th>类型</th><th>状态</th><th>创建</th><th></th></tr></thead>
       <tbody>
         {jobs.map((j) => (
           <tr key={j.id} className="border-t border-edge">
-            <td className="py-1 font-mono">{j.id}</td><td>{j.kind}</td><td><JobStatus s={j.status} /></td>
+            <td className="py-1 font-mono">{j.id}</td><td>{j.kind === 'train_transport' ? MOBILE_MODEL_LABELS[j.params.model] : j.kind}</td><td><JobStatus s={j.status} /></td>
             <td className="text-muted">{j.created?.slice(11, 19)}</td>
             <td className="space-x-2">
               <Link className="text-accent" to={`/training/${j.id}`}>日志</Link>
-              {j.status === 'running' && <button className="text-red-400" onClick={() => api.stopJob(j.id).then(reload)}>停止</button>}
+              {(j.status === 'running' || j.kind === 'train_transport' && j.status === 'queued') && <button className="text-red-400 disabled:opacity-60" disabled={!!stopping} onClick={() => void stop(j.id)}>{stopping === j.id ? '正在停止…' : '停止'}</button>}
             </td>
           </tr>
         ))}
         {!jobs.length && <tr><td colSpan={5} className="text-muted py-2">暂无任务</td></tr>}
       </tbody>
-    </table>
-  )
-}
-
-export function ProjectsPage() {
-  const nav = useNavigate()
-  const { data, reload } = useFetch(() => api.projects(), [])
-  const [busy, setBusy] = useState(false)
-  const [demoMsg, setDemoMsg] = useState('')
-  const launchDemo = async (withWorld: boolean) => {
-    setBusy(true); setDemoMsg('')
-    try {
-      const r = await api.setupHackathonDemo({ project_id: 'hackathon_demo', with_world_background: withWorld })
-      reload()
-      nav(`/projects/${r.project_id}/sim`)
-    } catch (e: any) {
-      setDemoMsg(e.message || 'Demo 加载失败')
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <div className="p-4">
-      <h2 className="text-lg text-ink mb-3">项目中心</h2>
-      <div className="border border-accent/40 rounded p-3 bg-panel2 mb-4">
-        <div className="text-sm text-accent font-medium mb-1">Aholo x RoboForge 黑客松旗舰演示</div>
-        <div className="text-xs text-muted mb-2">
-          一键装配（全链路 Aholo Lux3D 生成资产）：体素凹面分解托盘（真实内腔底面 + 凹面四壁碰撞）+ 多动态自由刚体（Lux3D 陶瓷杯 + Lux3D 伴随木块）+ 参数化支持面 + 标准 URDF 导出。
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <Button size="sm" disabled={busy} onClick={() => launchDemo(false)}>
-            {busy ? '装配并校验中…' : '一键进入物理复合 Demo (hackathon_demo)'}
-          </Button>
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => launchDemo(true)}>
-            加载 Aholo World 高斯融合版
-          </Button>
-        </div>
-        {demoMsg && <div className="text-xs text-red-400 mt-1">{demoMsg}</div>}
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        {(data?.projects || []).map((p) => (
-          <div key={p.id} className="border border-edge rounded p-3 bg-panel2">
-            <div className="text-accent">{p.id} <span className="text-muted text-xs">v{p.version}</span></div>
-            <div className="text-xs text-muted my-1">机器人 {p.robots?.join(', ')} · 任务 {p.task}</div>
-            <div className="space-x-2 text-xs">
-              {(p.robots || []).map((r: string) => (
-                <Link key={r} className="text-accent" to={`/robots/${r}/edit`}>机器人 {r}</Link>
-              ))}
-              <Link className="text-accent" to={`/projects/${p.id}/sim`}>仿真</Link>
-              <Link className="text-accent" to="/datasets">数据集</Link>
-              <Link className="text-accent" to="/training">训练</Link>
-              <Link className="text-accent" to="/evaluations">评测</Link>
-            </div>
-          </div>
-        ))}
-      </div>
+      </table></div>
     </div>
   )
 }
@@ -242,7 +212,6 @@ function SceneCanvasPanel({ project, assetId, revision, asset, onMsg }:
   const { data, reload } = useFetch<any>(() => api.getScene(project), [project])
   const [inst, setInst] = useState<any>({ position: [0, 0, 0], quaternion_xyzw: [0, 0, 0, 1], uniform_scale: 1 })
   const [cols, setCols] = useState<any[]>([])
-  const [nodes, setNodes] = useState<any[]>([])
   const [sel, setSel] = useState<any>(null)
   const [grid, setGrid] = useState(true)
   const [dirty, setDirty] = useState(false)
@@ -256,7 +225,7 @@ function SceneCanvasPanel({ project, assetId, revision, asset, onMsg }:
     if (data) {
       const e = data.environment
       setInst({ position: e?.position ?? [0, 0, 0], quaternion_xyzw: e?.quaternion_xyzw ?? [0, 0, 0, 1], uniform_scale: e?.uniform_scale ?? 1 })
-      setCols(data.colliders || []); setNodes(data.asset_nodes || []); setVer(data.version ?? 0); setDirty(false); setUndo([]); setRedo([])
+      setCols(data.colliders || []); setVer(data.version ?? 0); setDirty(false); setUndo([]); setRedo([])
     }
   }, [data])
   const snapshot = () => { setUndo((u) => [...u.slice(-49), { inst, cols }]); setRedo([]) }
@@ -275,14 +244,14 @@ function SceneCanvasPanel({ project, assetId, revision, asset, onMsg }:
     onMsg(`按已知距离缩放 ×${f.toFixed(3)}（测量 ${measured.toFixed(4)} → ${known}）`)
   }
   const saveAll = async () => {
-    if (!data?.environment && !cols.length && !nodes.length) return
+    if (!data?.environment) return
     try {
       const r = await api.commitScene(project, {
-        environment: data?.environment ? { ...data.environment, position: inst.position, quaternion_xyzw: inst.quaternion_xyzw, uniform_scale: inst.uniform_scale } : null,
-        colliders: cols, asset_nodes: nodes, use_default_table: data?.use_default_table, work_surface_z: data?.work_surface_z,
+        environment: { ...data.environment, position: inst.position, quaternion_xyzw: inst.quaternion_xyzw, uniform_scale: inst.uniform_scale },
+        colliders: cols, use_default_table: data.use_default_table, work_surface_z: data.work_surface_z,
         expected_version: ver,
       })
-      setVer(r.version); onMsg(`已原子保存场景实例、${(r.asset_nodes || []).length} 个资产节点与 ${r.colliders.length} 个碰撞代理 → v${r.version}`); setDirty(false); reload()
+      setVer(r.version); onMsg(`已原子保存场景实例与 ${r.colliders.length} 个碰撞代理 → v${r.version}`); setDirty(false); reload()
     } catch (e: any) {
       onMsg(`保存失败: ${e.message}${String(e.message).includes('409') ? '（其他页面已更新，请放弃本地修改后重试）' : ''}`)
     }
@@ -298,12 +267,12 @@ function SceneCanvasPanel({ project, assetId, revision, asset, onMsg }:
         <Button size="sm" variant="outline" onClick={doUndo} disabled={!undo.length}>撤销</Button>
         <Button size="sm" variant="outline" onClick={doRedo} disabled={!redo.length}>重做</Button>
         <Button size="sm" variant="outline" onClick={dirtyRef}>放弃修改</Button>
-        <Button size="sm" onClick={saveAll} disabled={!data?.environment && !cols.length && !nodes.length}>保存</Button>
+        <Button size="sm" onClick={saveAll} disabled={!data?.environment}>保存</Button>
       </div>
-      {!data?.environment && !nodes.length && <div className="text-xs text-muted mb-2">该项目尚未绑定场景；先在下方绑定或应用配方。</div>}
+      {!data?.environment && <div className="text-xs text-muted mb-2">该项目尚未绑定场景；先在下方绑定。</div>}
       {asset && !asset.visual_asset && <div className="text-xs text-yellow-300 mb-2">
         该资产为高斯/点云（无 MJCF 网格视觉）：画布仅显示全景预览；渲染由 hybrid 管线负责。</div>}
-      {(assetUrl || nodes.length > 0) ? <SceneCanvas assetUrl={assetUrl} inst={inst} cols={cols} assetNodes={nodes} selected={sel}
+      {assetUrl ? <SceneCanvas assetUrl={assetUrl} inst={inst} cols={cols} selected={sel}
         onSelect={setSel} onMove={moveCol} onInstanceMove={moveInst} showGrid={grid} /> :
         asset?.preview_asset ? <img alt="场景全景预览" className="w-full max-h-72 object-contain bg-panel2 rounded" src={`/api/v1/scene-assets/${encodeURIComponent(assetId || '')}/revisions/${revision ?? asset?.revision ?? 1}/preview`} /> : null}
       <div className="text-[11px] text-muted mt-1">点击物体/线框选中；拖动 gizmo 平移并回写数值；碰撞为线框，视觉与同一坐标。</div>
@@ -466,8 +435,6 @@ export function RobotEditPage() {
         </label>
         <Button size="sm" variant="outline" onClick={validate}>校验</Button>
         <Button size="sm" disabled={busy} onClick={save}>保存新版本</Button>
-        <a className="text-xs text-accent border border-edge rounded px-2 py-1 hover:bg-panel"
-          href={api.robotUrdfUrl(project, robot)} download={`${project}-${robot}.urdf`}>导出 URDF</a>
       </div>
       <div className="flex gap-2 mb-2 text-xs">
         {robots.map((x: any) => (
@@ -564,32 +531,28 @@ export function RobotEditPage() {
 export function DatasetsPage() {
   const { data, reload } = useFetch(() => api.datasets(), [])
   const projects = useFetch(() => api.projects(), [])
-  const [project, setProject] = useState('hackathon_demo')
-  const [episodes, setEpisodes] = useState(6)
+  const [project, setProject] = useState('default')
   const [collection, setCollection] = useState('capture_' + Date.now())
   const [dataset, setDataset] = useState('scene_data_' + Date.now())
   const [msg, setMsg] = useState('')
   const start = async (kind: string) => {
     try {
-      const params = kind === 'collect'
-        ? { project_id: project, dataset_id: collection, episodes }
-        : { collection_id: collection, dataset_id: dataset }
+      const params = kind === 'collect' ? {project_id: project, dataset_id: collection} : {collection_id: collection, dataset_id: dataset}
       const job = await api.createJob(kind, params); setMsg(`任务 ${job.id} 已创建`); reload()
     } catch (e: any) { setMsg(e.message) }
   }
   return (
     <div className="p-4">
       <h2 className="text-lg text-ink mb-2">数据集</h2>
-      <div className="flex flex-wrap gap-2 text-xs mb-3">
+      <div className="flex gap-2 text-xs mb-3">
         <label>项目 <select value={project} onChange={e => setProject(e.target.value)}>{projects.data?.projects.map(p => <option key={p.id}>{p.id}</option>)}</select></label>
-        <label>采集局数 <input className="!w-16" type="number" min={1} max={50} value={episodes} onChange={e => setEpisodes(Math.max(1, parseInt(e.target.value) || 6))} /></label>
         <label>采集 ID <input value={collection} onChange={e => setCollection(e.target.value)} /></label>
         <label>转换后数据集 ID <input value={dataset} onChange={e => setDataset(e.target.value)} /></label>
       </div>
       <div className="flex gap-2 mb-3">
-        <Button onClick={() => start('collect')}>采集（双目视觉+专家）</Button>
+        <Button onClick={() => start('collect')}>采集（伺服专家）</Button>
         <Button variant="outline" onClick={() => start('convert')}>转换 LeRobot</Button>
-        <span className="text-xs text-muted">同时录制 front + wrist 相机画面；使用新 ID 避免覆盖已有数据。</span>
+        <span className="text-xs text-muted">转换包含实际回读验证；使用新 ID，避免覆盖已有数据。</span>
       </div>
       {msg && <div className="text-xs mb-3">{msg}</div>}
       <div className="grid grid-cols-2 gap-3 mb-4">
@@ -608,31 +571,10 @@ export function DatasetsPage() {
 export function DatasetDetail() {
   const { datasetId } = useParams()
   const { data } = useFetch(() => api.dataset(datasetId || 'staging'), [datasetId])
-  const preview = useFetch(() => api.datasetPreviewFrames(datasetId || 'staging', 0), [datasetId])
   return (
     <div className="p-4">
       <Link to="/datasets" className="text-xs text-accent">← 数据集</Link>
       <h2 className="text-lg text-ink my-2">{datasetId}</h2>
-      {(preview.data?.frames || []).length > 0 && (
-        <Section title="已采集的双目相机样本（Episode 0 · front + wrist 视觉真值）">
-          <div className="grid grid-cols-3 gap-3 mb-2">
-            {preview.data.frames.map((fr: any) => (
-              <div key={fr.index} className="border border-edge rounded p-2 bg-panel2 text-xs">
-                <div className="text-accent mb-1">{fr.label} · frame {fr.index} · {fr.sim_time}s</div>
-                <div className="grid grid-cols-2 gap-1">
-                  {Object.entries(fr.images || {}).map(([cam, b64]: [string, any]) => (
-                    <div key={cam}>
-                      <div className="text-[10px] text-muted mb-0.5">{cam}</div>
-                      <img alt={cam} className="w-full rounded border border-edge" src={`data:image/jpeg;base64,${b64}`} />
-                    </div>
-                  ))}
-                </div>
-                <div className="text-[10px] text-muted mt-1 font-mono">action: [{fr.action.join(', ')}]</div>
-              </div>
-            ))}
-          </div>
-        </Section>
-      )}
       <pre className="text-[11px] text-muted bg-panel2 border border-edge rounded p-3 overflow-auto max-h-[60vh]">
         {JSON.stringify(data, null, 1)}
       </pre>
@@ -640,97 +582,336 @@ export function DatasetDetail() {
   )
 }
 
-export function TrainingPage() {
-  const { reload } = useFetch(() => api.jobs(), [])
-  const datasets = useFetch(() => api.datasets(), [])
-  const models = useFetch(() => api.models(), [])
-  const [dataset, setDataset] = useState('')
-  const [model, setModel] = useState('hackathon_vla_bc')
-  const [msg, setMsg] = useState('')
-  const available = (datasets.data?.datasets || []).filter(d => d.kind === 'lerobot')
-  const start = (priv: boolean) => api.createJob('train', { priv, epochs: 60 }).then(reload)
+const MOBILE_MODEL_LABELS: Record<string, string> = {
+  smolvla: 'SmolVLA 移动动作头',
+  visual_bc: '移动双相机 BC',
+  state_bc: '移动状态 BC',
+  privileged_bc: '移动特权 BC',
+}
+
+const MOBILE_TASK_LABELS: Record<string, string> = {
+  deliver: '送入箱子',
+  pick_return: '拿起放回',
+  bin_retrieve: '入箱再取出',
+  bin_return: '入箱取出再返程',
+}
+
+function TransportTrainingPanel({ requestedDataset }: { requestedDataset: string | null }) {
+  const catalog = useFetch(api.transportTraining, [])
+  const [selection, setSelection] = useState<string[] | null>(null)
+  const [model, setModel] = useState('smolvla')
+  const [epochValue, setEpochValue] = useState('30')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState('')
+  const [jobId, setJobId] = useState('')
+  const datasets = catalog.data?.datasets ?? []
+  const matchingDataset = datasets.some(row => row.id === requestedDataset)
+  const selectedIds = selection ?? (requestedDataset ? [requestedDataset] : datasets.map(row => row.id))
+  const selected = datasets.filter(row => selectedIds.includes(row.id))
+  const trajectoryKeys = new Map<string, Set<string>>()
+  let frames = 0
+  for (const row of selected) {
+    const keys = trajectoryKeys.get(row.task) ?? new Set<string>()
+    for (const episode of row.episodes) {
+      const key = `${row.config_sha256}:${episode.seed}`
+      if (!keys.has(key)) frames += episode.frames
+      keys.add(key)
+    }
+    trajectoryKeys.set(row.task, keys)
+  }
+  const trajectories = Array.from(trajectoryKeys.values()).reduce((total, keys) => total + keys.size, 0)
+  const canValidate = Array.from(trajectoryKeys.values()).some(keys => keys.size >= 2)
+  const epochs = Number(epochValue)
+  const validEpochs = Number.isInteger(epochs) && epochs >= 1 && epochs <= 100
+
+  useEffect(() => {
+    const timer = setInterval(catalog.reload, 5000)
+    return () => clearInterval(timer)
+  }, [catalog.reload])
+
+  async function train() {
+    if (pending || !canValidate || !validEpochs) return
+    setPending(true)
+    setError('')
+    try {
+      const job = await api.createJob('train_transport', { model, epochs, dataset_ids: selected.map(row => row.id) })
+      setJobId(job.id)
+      catalog.reload()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPending(false)
+    }
+  }
+
   return (
-    <div className="p-4">
-      <h2 className="text-lg text-ink mb-2">训练中心</h2>
-      <div className="flex gap-2 mb-3 text-xs">
-        <label>视觉数据集 <select value={dataset || available[0]?.id || ''} onChange={e => setDataset(e.target.value)}>{available.map(d => <option key={d.id}>{d.id}</option>)}</select></label>
-        <label>输出模型 ID <input value={model} onChange={e => setModel(e.target.value)} /></label>
+    <>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(270px,1fr)]">
+        <section className="min-w-0 rounded-xl border border-edge bg-panel2 p-4 sm:p-5" aria-labelledby="training-datasets">
+          <header className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 id="training-datasets" className="text-base font-semibold">专家示范</h2>
+              <p className="mt-1 text-sm text-muted">选择已通过仿真并可用于训练的采集记录。</p>
+            </div>
+            <Link className="text-sm text-accent hover:underline" to="/transport?view=datasets">打开采集数据 →</Link>
+          </header>
+          {requestedDataset && catalog.data && (
+            <p className={matchingDataset ? 'mt-4 rounded-lg bg-accent/10 px-3 py-2 text-sm text-accent'
+              : 'mt-4 rounded-lg border border-yellow-500/30 px-3 py-2 text-sm text-yellow-200'} role="status">
+              {matchingDataset ? '已带入采集记录 ' : '这条采集记录当前不可用于训练 '}
+              <span className="break-all font-mono text-xs">{requestedDataset}</span>
+            </p>
+          )}
+          {catalog.err && !catalog.data ? (
+            <div className="mt-4 text-sm" role="alert">
+              <p className="mb-2 text-red-300">无法加载训练数据：{catalog.err}</p>
+              <Button variant="outline" onClick={catalog.reload}>重新加载</Button>
+            </div>
+          ) : !catalog.data ? <p className="mt-4 text-sm text-muted" role="status">正在读取专家示范…</p>
+            : !datasets.length ? <p className="mt-4 text-sm text-muted">暂无符合条件的示范。可先在搬运工作台使用状态专家基线采集。</p>
+            : <>
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-b border-edge pb-2">
+                <p className="text-sm text-muted">
+                  已选 <strong className="text-ink">{selected.length}</strong> / {datasets.length} 组
+                  <span className="mx-2 text-edge" aria-hidden="true">/</span>
+                  {trajectories} 条轨迹 · {frames.toLocaleString('zh-CN')} 帧
+                </p>
+                <div className="flex gap-1">
+                  <Button size="sm" variant="ghost" onClick={() => setSelection(datasets.map(row => row.id))} disabled={selected.length === datasets.length || pending}>全选</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setSelection([])} disabled={!selected.length || pending}>清空</Button>
+                </div>
+              </div>
+              <fieldset className="mt-3 grid gap-2 sm:grid-cols-2" disabled={pending}>
+                <legend className="sr-only">选择训练数据集</legend>
+                {datasets.map(row => {
+                  const checked = selectedIds.includes(row.id)
+                  return (
+                    <label key={row.id} className={`flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition-colors hover:border-accent/70 ${checked ? 'border-accent/50 bg-accent/5' : 'border-edge bg-panel/50'}`}>
+                      <input className="mt-0.5 shrink-0 accent-[#81d2bd]" type="checkbox" checked={checked}
+                        onChange={event => {
+                          const ids = selected.map(item => item.id)
+                          setSelection(event.target.checked ? [...ids, row.id] : ids.filter(id => id !== row.id))
+                        }} />
+                      <span className="min-w-0">
+                        <strong className="block text-sm font-medium">{MOBILE_TASK_LABELS[row.task] ?? row.task}</strong>
+                        <span className="block text-xs text-muted">{row.episodes.length} 条轨迹 · {row.episodes.reduce((sum, episode) => sum + episode.frames, 0).toLocaleString('zh-CN')} 帧</span>
+                        <code className="mt-0.5 block break-all text-[11px] text-muted">{row.id}</code>
+                      </span>
+                    </label>
+                  )
+                })}
+              </fieldset>
+            </>}
+        </section>
+        <section className="self-start rounded-xl border border-edge bg-panel2 p-4 sm:p-5" aria-labelledby="training-config">
+          <h2 id="training-config" className="text-base font-semibold">GPU 训练配置</h2>
+          <form className="mt-4 space-y-4" onSubmit={event => { event.preventDefault(); void train() }}>
+            <label className="block text-sm">训练模型
+              <select className="mt-1.5 min-h-10" value={model} onChange={event => setModel(event.target.value)} disabled={pending}>
+                {Object.entries(catalog.data?.models ?? MOBILE_MODEL_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+              </select>
+            </label>
+            {model === 'smolvla' && <p className="text-xs leading-relaxed text-muted">冻结 SmolVLA 图像与语言编码，训练包含底盘控制的 7 维动作头。</p>}
+            {model === 'privileged_bc' && <p className="text-xs leading-relaxed text-muted">使用仿真真值，仅用于诊断。</p>}
+            <label className="block text-sm">训练轮数
+              <input className="mt-1.5 min-h-10" type="number" min={1} max={100} step={1} required value={epochValue}
+                disabled={pending} onChange={event => setEpochValue(event.target.value)} />
+            </label>
+            <p className="text-xs leading-relaxed text-muted" id="training-validation-note">
+              {canValidate ? '从所选数据中按任务留出完整轨迹作为验证集。' : '同一任务至少需要两条不同轨迹，才能留出完整验证轨迹。'}
+            </p>
+            <Button type="submit" className="min-h-10 w-full text-sm" aria-describedby="training-validation-note"
+              disabled={pending || !canValidate || !validEpochs}>{pending ? '正在提交…' : '提交 GPU 训练'}</Button>
+          </form>
+          {error && <p role="alert" className="mt-3 break-words text-sm text-red-300">提交失败：{error}</p>}
+          {jobId && <p role="status" className="mt-3 text-sm text-muted">任务已提交。 <Link className="text-accent hover:underline" to={`/training/${jobId}`}>查看日志 →</Link></p>}
+        </section>
       </div>
-      <div className="flex gap-2 mb-3">
-        <Button onClick={() => start(false)}>训练状态 BC</Button>
-        <Button variant="outline" onClick={() => start(true)}>训练特权 BC</Button>
-        <Button variant="outline" disabled={!available.length} onClick={async () => {
-          try { await api.createJob('train_visual', {dataset_id: dataset || available[0].id, model_id: model, cameras: 'front,wrist', epochs: 80}); reload(); setMsg('双目视觉 BC 训练任务已创建') }
-          catch (e: any) { setMsg(e.message) }
-        }}>训练双目视觉 BC</Button>
+      {catalog.data && <section className="rounded-xl border border-edge bg-panel2 p-4 sm:p-5" aria-labelledby="training-checkpoints">
+        <h2 className="mb-3 text-base font-semibold" id="training-checkpoints">训练检查点</h2>
+        {catalog.data.checkpoints.length ? <ul className="divide-y divide-edge">
+          {catalog.data.checkpoints.map(checkpoint => (
+            <li key={checkpoint.id} className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 py-4 first:pt-0 last:pb-0">
+              <div className="min-w-0">
+                <h3 className="text-sm font-medium">{MOBILE_MODEL_LABELS[checkpoint.model] ?? checkpoint.model}</h3>
+                <p className="mt-1 text-xs leading-relaxed text-muted">
+                  {checkpoint.device || '训练设备未记录'} · {checkpoint.train_frames.toLocaleString('zh-CN')} 帧训练 · {checkpoint.val_frames.toLocaleString('zh-CN')} 帧验证
+                </p>
+                <p className="text-xs leading-relaxed text-muted">
+                  离线验证 MSE {checkpoint.best.val_mse.toFixed(4)}（第 {checkpoint.best.epoch} 轮）
+                  {checkpoint.val_episodes.length > 0 && ` · ${Array.from(new Set(checkpoint.val_episodes.map(row => MOBILE_TASK_LABELS[row.task] ?? row.task))).join('、')}`}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Link className="rounded px-2 py-1.5 font-mono text-xs text-accent hover:underline" to={`/training/${checkpoint.id}`}>{checkpoint.id}</Link>
+                <Button asChild variant="outline"><Link to={`/evaluations?checkpoint=${encodeURIComponent(checkpoint.id)}`}>查看闭环评测</Link></Button>
+                <Button asChild><Link to={`/transport?view=policy&checkpoint=${encodeURIComponent('mobile-' + checkpoint.id)}`}>用于搬运仿真</Link></Button>
+              </div>
+            </li>
+          ))}
+        </ul> : <p className="text-sm text-muted">训练完成后，模型检查点将在这里显示。</p>}
+      </section>}
+    </>
+  )
+}
+
+function FixedTrainingPanel() {
+  const datasets = useFetch(() => api.datasets(), [])
+  const [dataset, setDataset] = useState('')
+  const [model, setModel] = useState('repaired_visual')
+  const [pending, setPending] = useState(false)
+  const [jobId, setJobId] = useState('')
+  const [error, setError] = useState('')
+  const available = (datasets.data?.datasets || []).filter(d => d.kind === 'lerobot')
+  const selectedDataset = available.some(d => d.id === dataset) ? dataset : available[0]?.id ?? ''
+  async function start(kind: 'state' | 'privileged' | 'visual') {
+    if (pending) return
+    setPending(true)
+    setError('')
+    try {
+      const job = kind === 'visual'
+        ? await api.createJob('train_visual', { dataset_id: selectedDataset, model_id: model.trim() })
+        : await api.createJob('train', { priv: kind === 'privileged', epochs: 60 })
+      setJobId(job.id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPending(false)
+    }
+  }
+  return (
+    <section className="rounded-xl border border-edge bg-panel2 p-4 sm:p-5" aria-labelledby="fixed-training-title">
+      <h2 id="fixed-training-title" className="text-base font-semibold">固定机械臂训练</h2>
+      <p className="mt-1 text-sm text-muted">状态 BC 与特权 BC 使用固定基线。视觉 BC 需要带 simulation.json 的 LeRobot 数据集。</p>
+      <div className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
+        <label className="text-sm">视觉数据集
+          <select className="mt-1.5 min-h-10" value={selectedDataset} onChange={event => setDataset(event.target.value)} disabled={pending || !available.length}>
+            {!available.length && <option value="">{!datasets.data && !datasets.err ? '正在读取…' : '暂无 LeRobot 数据集'}</option>}
+            {available.map(d => <option key={d.id} value={d.id}>{d.id}</option>)}
+          </select>
+        </label>
+        <label className="text-sm">输出模型 ID
+          <input className="mt-1.5 min-h-10" type="text" value={model} onChange={event => setModel(event.target.value)} disabled={pending} />
+        </label>
       </div>
-      {msg && <div className="text-xs mb-3">{msg}</div>}
-      <div className="text-xs text-muted">双目视觉训练输入 front + wrist 相机帧与关节本体状态；同时导出 PyTorch (.pt) 与仿真直连 NumPy (.npz) 权重。</div>
-      <div className="text-xs text-muted mb-3">训练在独立后台进程（WSL 学习环境的 PyTorch）运行，产物写入 datasets/models 与 reports。</div>
-      {(models.data?.models || []).length > 0 && (
-        <Section title="已训练视觉模型（可在仿真工具栏直接「运行视觉策略」）">
-          <table className="w-full text-xs mb-3">
-            <thead><tr className="text-muted text-left"><th className="py-1">模型 ID</th><th>输入视角</th><th>数据帧</th><th>验证 MSE</th><th>可闭环仿真</th></tr></thead>
-            <tbody>
-              {models.data!.models.map((m: any) => (
-                <tr key={m.id} className="border-t border-edge">
-                  <td className="py-1 font-mono text-accent">{m.id}</td>
-                  <td>{(m.camera_keys || ['front']).join(' + ')}</td>
-                  <td>{m.frames ?? '--'}</td>
-                  <td>{m.val_mse ?? '--'}</td>
-                  <td className={m.runnable ? 'text-accent' : 'text-muted'}>{m.runnable ? '就绪 (.npz)' : '仅 .pt'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Section>
-      )}
-      <JobsTable filter="train" />
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button onClick={() => void start('state')} disabled={pending}>训练状态 BC</Button>
+        <Button variant="outline" onClick={() => void start('privileged')} disabled={pending}>训练特权 BC</Button>
+        <Button variant="outline" onClick={() => void start('visual')} disabled={pending || !selectedDataset || !model.trim()}>训练视觉 BC</Button>
+      </div>
+      {datasets.err && !datasets.data && <p role="alert" className="mt-3 text-sm text-red-300">读取视觉数据集失败。 <button className="text-accent hover:underline" onClick={datasets.reload}>重新加载</button></p>}
+      {error && <p role="alert" className="mt-3 break-words text-sm text-red-300">提交失败：{error}</p>}
+      {pending && <p role="status" className="mt-3 text-sm text-muted">正在提交训练任务…</p>}
+      {!pending && jobId && <p role="status" className="mt-3 text-sm text-muted">任务已提交。 <Link className="text-accent hover:underline" to={`/training/${jobId}`}>查看日志 →</Link></p>}
+    </section>
+  )
+}
+
+export function TrainingPage() {
+  const [query] = useSearchParams()
+  const fixed = query.get('tab') === 'fixed'
+  const requestedDataset = query.get('dataset')
+  const mobilePath = requestedDataset ? `/training?dataset=${encodeURIComponent(requestedDataset)}` : '/training'
+  const tabs = [
+    { to: mobilePath, label: '移动搬运', active: !fixed },
+    { to: '/training?tab=fixed', label: '固定机械臂', active: fixed },
+  ]
+  return (
+    <div className="workspace-page">
+      <header className="workspace-page-heading">
+        <h1>训练中心</h1>
+        <p className="mt-2 text-sm text-muted">提交训练、查看日志，并使用检查点验证策略。</p>
+      </header>
+      <nav aria-label="训练类型" className="workspace-tabs">
+        {tabs.map(({ to, label, active }) => (
+          <Link key={label} to={to} aria-current={active ? 'page' : undefined}>{label}</Link>
+        ))}
+      </nav>
+      <div className="space-y-5">
+        {fixed ? <FixedTrainingPanel /> : <TransportTrainingPanel key={requestedDataset ?? ''} requestedDataset={requestedDataset} />}
+        <section className="rounded-xl border border-edge bg-panel2 p-4 sm:p-5" aria-labelledby="training-jobs">
+          <h2 id="training-jobs" className="mb-3 text-base font-semibold">训练任务</h2>
+          <JobsTable filter={fixed ? ['train', 'train_visual'] : ['train_transport']} />
+        </section>
+      </div>
     </div>
   )
 }
 
 export function JobDetail() {
   const { jobId } = useParams()
-  const { data: job } = useFetch(() => api.job(jobId || ''), [jobId])
-  const { data: logs, reload } = useFetch(() => api.jobLogs(jobId || ''), [jobId])
-  useEffect(() => { const t = setInterval(reload, 2000); return () => clearInterval(t) }, [reload])
+  const { data: job, err: jobError, reload: reloadJob } = useFetch(() => api.job(jobId || ''), [jobId])
+  const { data: logs, err: logError, reload } = useFetch(() => api.jobLogs(jobId || ''), [jobId])
+  useEffect(() => {
+    const t = setInterval(() => { reload(); reloadJob() }, 2000)
+    return () => clearInterval(t)
+  }, [reload, reloadJob])
   return (
-    <div className="p-4">
-      <Link to="/training" className="text-xs text-accent">← 任务列表</Link>
-      <h2 className="text-lg text-ink my-2">任务 {jobId} · {job?.kind} · <JobStatus s={job?.status ?? '…'} /></h2>
-      <pre className="text-[11px] text-muted bg-panel2 border border-edge rounded p-3 overflow-auto max-h-[65vh]">
-        {(logs?.lines || []).join('\n')}
+    <div className="mx-auto max-w-7xl space-y-5 p-4 sm:p-7">
+      <Link to={job?.kind === 'train' || job?.kind === 'train_visual' ? '/training?tab=fixed' : '/training'} className="text-sm text-accent hover:underline">← 返回训练中心</Link>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-ink">任务日志</h1>
+          <p className="mt-1 break-all font-mono text-xs text-muted">{jobId}</p>
+        </div>
+        {job && <div className="rounded-lg border border-edge px-3 py-2 text-sm"><JobStatus s={job.status} /></div>}
+      </header>
+      {jobError && !job && <p role="alert" className="text-sm text-red-300">读取任务失败：{jobError}</p>}
+      {logError && !logs && <p role="alert" className="text-sm text-red-300">读取日志失败：{logError}</p>}
+      {job?.storage_error && <p role="alert" className="text-sm text-red-300">{job.storage_error}</p>}
+      <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap break-words rounded-xl border border-edge bg-panel2 p-4 text-xs leading-relaxed text-muted">
+        {logs?.lines?.length ? logs.lines.join('\n') : logs ? '暂无日志输出。' : '正在读取日志…'}
       </pre>
     </div>
   )
 }
 
 export function EvaluationsPage() {
-  const { reload } = useFetch(() => api.jobs(), [])
   const projects = useFetch(() => api.projects(), [])
   const [project, setProject] = useState('default')
   const [model, setModel] = useState('repaired_visual')
-  const [msg, setMsg] = useState('')
-  const start = (priv: boolean) => api.createJob('eval', { priv, group: 'all' }).then(reload)
+  const [pending, setPending] = useState(false)
+  const [notice, setNotice] = useState<{ jobId: string } | { error: string } | null>(null)
+
+  async function start(mode: 'state' | 'privileged' | 'visual') {
+    setPending(true)
+    setNotice(null)
+    try {
+      const job = mode === 'visual' ? await api.createJob('eval_visual', { project_id: project, model_id: model.trim() })
+        : await api.createJob('eval', { priv: mode === 'privileged', group: 'all' })
+      setNotice({ jobId: job.id })
+    } catch (error) {
+      setNotice({ error: error instanceof Error ? error.message : '评测提交失败。' })
+    } finally {
+      setPending(false)
+    }
+  }
+
   return (
-    <div className="p-4">
-      <h2 className="text-lg text-ink mb-2">评测中心</h2>
-      <div className="flex gap-2 mb-3 text-xs">
-        <label>视觉评估项目 <select value={project} onChange={e => setProject(e.target.value)}>{projects.data?.projects.map(p => <option key={p.id}>{p.id}</option>)}</select></label>
-        <label>模型 ID <input value={model} onChange={e => setModel(e.target.value)} /></label>
-      </div>
-      <div className="flex gap-2 mb-3">
-        <Button onClick={() => start(false)}>评测状态 BC</Button>
-        <Button variant="outline" onClick={() => start(true)}>评测特权 BC</Button>
-        <Button variant="outline" onClick={async () => {
-          try { await api.createJob('eval_visual', {project_id: project, model_id: model}); reload(); setMsg('评估任务已创建；结果路径见作业参数') }
-          catch (e: any) { setMsg(e.message) }
-        }}>评测视觉 BC</Button>
-      </div>
-      {msg && <div className="text-xs mb-3">{msg}</div>}
-      <div className="text-xs text-muted mb-3">独立 rollout，按训练内/留出摆位/留出资产分组报告；结果写入 datasets/reports/eval_policy.json / eval_priv.json。特权成绩标明特权观测。</div>
-      <JobsTable filter="eval" />
+    <div className="grid gap-4">
+      <section className="rounded-xl border border-edge bg-panel2 p-4 sm:p-5" aria-labelledby="fixed-eval-heading">
+        <h2 id="fixed-eval-heading" className="mb-2 text-base font-semibold">固定臂评测任务</h2>
+        <p className="mb-4 text-sm text-muted">评测按训练场景、留出摆位和留出资产分组。特权 BC 会使用仿真真值。</p>
+        <div className="grid max-w-xl gap-3 text-sm sm:grid-cols-2">
+          <label className="grid min-w-0 gap-1">视觉评测项目 <select className="min-h-9" value={project} onChange={e => setProject(e.target.value)}>
+            <option value="default">default</option>
+            {projects.data?.projects.filter(p => p.id !== 'default').map(p => <option key={p.id} value={p.id}>{p.id}</option>)}
+          </select></label>
+          <label className="grid gap-1">视觉模型 ID <input type="text" className="min-h-9" value={model} onChange={e => setModel(e.target.value)} /></label>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button disabled={pending} onClick={() => void start('state')}>评测状态 BC</Button>
+          <Button variant="outline" disabled={pending} onClick={() => void start('privileged')}>评测特权 BC</Button>
+          <Button variant="outline" disabled={pending || !model.trim()} onClick={() => void start('visual')}>评测视觉 BC</Button>
+        </div>
+        {pending && <p className="mt-3 text-sm text-muted" role="status">正在提交…</p>}
+        {notice && ('error' in notice ? <p className="mt-3 text-sm text-red-300" role="alert">{notice.error}</p>
+          : <p className="mt-3 text-sm" role="status">评测已提交。 <Link className="text-accent underline" to={`/training/${encodeURIComponent(notice.jobId)}`}>查看日志</Link></p>)}
+      </section>
+      <section className="min-w-0 rounded-xl border border-edge bg-panel2 p-4 sm:p-5" aria-labelledby="fixed-eval-history">
+        <h2 id="fixed-eval-history" className="mb-3 text-base font-semibold">评测记录</h2>
+        <JobsTable filter="eval" />
+      </section>
     </div>
   )
 }

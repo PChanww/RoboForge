@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { api } from './api'
 import type { Observation, ProjectConfig, Selection } from './types'
 
-interface LogEntry { t: string; msg: string; level: 'info' | 'error'; tag?: string }
+interface LogEntry { t: string; msg: string; level: 'info' | 'error' }
 
 interface State {
   config: ProjectConfig | null
@@ -16,9 +16,6 @@ interface State {
   selection: Selection
   setRobot: (id: string) => Promise<void>
   running: boolean
-  runMode: 'expert' | 'policy'
-  policyModel: string
-  policyInstruction: string
   busy: boolean
   error: string | null
   logs: LogEntry[]
@@ -29,47 +26,15 @@ interface State {
   reloadSession: () => Promise<void>
   reset: (seed?: number) => Promise<void>
   step: () => Promise<void>
-  setPolicyModel: (id: string) => void
-  setPolicyInstruction: (s: string) => void
   expertStep: () => Promise<void>
-  policyStep: () => Promise<void>
   toggleRun: () => void
-  togglePolicyRun: () => void
-  upsertLog: (tag: string, msg: string, level?: 'info' | 'error') => void
   log: (msg: string, level?: 'info' | 'error') => void
 }
 
-let stopRunTimer: (() => void) | null = null
-let finishLoadProgress: ((status: 'ok' | 'err' | 'cancel') => void) | null = null
+let runTimer: ReturnType<typeof setInterval> | null = null
 let stepping = false
 let initQueue = Promise.resolve()
 let hideListenerInstalled = false
-
-function formatBar(pct: number): string {
-  const p = Math.max(0, Math.min(100, Math.round(pct)))
-  const filled = Math.round(p / 10)
-  return `[${'█'.repeat(filled)}${'░'.repeat(10 - filled)}] ${p}%`
-}
-
-function startExpertLoop(fn: () => void): () => void {
-  if (typeof Worker !== 'undefined' && typeof Blob !== 'undefined') {
-    try {
-      const code = 'const id = setInterval(() => postMessage(1), 60); self.onmessage = () => clearInterval(id);'
-      const url = URL.createObjectURL(new Blob([code], { type: 'application/javascript' }))
-      const w = new Worker(url)
-      w.onmessage = () => fn()
-      return () => {
-        w.postMessage('stop')
-        w.terminate()
-        URL.revokeObjectURL(url)
-      }
-    } catch {
-      // Fall back to main-thread interval when Workers are unavailable
-    }
-  }
-  const id = setInterval(fn, 60)
-  return () => clearInterval(id)
-}
 
 export const useStore = create<State>((set, get) => ({
   config: null,
@@ -82,27 +47,12 @@ export const useStore = create<State>((set, get) => ({
   activeRobotId: '',
   selection: null,
   running: false,
-  runMode: 'expert',
-  policyModel: 'hackathon_vla_bc',
-  policyInstruction: (typeof localStorage !== 'undefined' ? (localStorage.getItem('vla_instruction') || '') : ''),
   busy: false,
   error: null,
   logs: [],
 
   log: (msg, level = 'info') =>
     set((s) => ({ logs: [...s.logs.slice(-199), { t: new Date().toLocaleTimeString(), msg, level }] })),
-
-  upsertLog: (tag: string, msg: string, level: 'info' | 'error' = 'info') =>
-    set((s) => {
-      const t = new Date().toLocaleTimeString()
-      const idx = s.logs.findIndex((x) => x.tag === tag)
-      if (idx >= 0) {
-        const next = s.logs.slice()
-        next[idx] = { t, msg, level, tag }
-        return { logs: next }
-      }
-      return { logs: [...s.logs.slice(-199), { t, msg, level, tag }] }
-    }),
 
   init: async (project) => {
     const load = async () => {
@@ -113,26 +63,17 @@ export const useStore = create<State>((set, get) => ({
       set({ config, dirty: false, activeRobotId: config.robots.some(r => r.id === get().activeRobotId) ? get().activeRobotId : config.robots[0].id, selection: null })
       if (changed || !get().sessionId) await get().reloadSession()
       get().log(`已加载配置 v${config.version}，会话就绪`)
-      if (!hideListenerInstalled) {
-        window.addEventListener('pagehide', () => {
-          if (stopRunTimer) { stopRunTimer(); stopRunTimer = null }
-          const { sessionId, token } = get()
-          if (sessionId && token) {
-            fetch(`/api/v1/sessions/${sessionId}/control/release`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ token }), keepalive: true,
-            }).catch(() => {})
-          }
-        })
-        if (typeof document !== 'undefined') {
-          document.addEventListener('visibilitychange', () => {
-            if (!get().running) return
-            if (get().runMode === 'policy') get().policyStep()
-            else get().expertStep()
-          })
+      if (!hideListenerInstalled) window.addEventListener('pagehide', () => {
+        if (runTimer) { clearInterval(runTimer); runTimer = null }
+        const { sessionId, token } = get()
+        if (sessionId && token) {
+          fetch(`/api/v1/sessions/${sessionId}/control/release`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token }), keepalive: true,
+          }).catch(() => {})
         }
-        hideListenerInstalled = true
-      }
+      })
+      hideListenerInstalled = true
     } catch (e: any) {
       set({ error: e.message })
       get().log(e.message, 'error')
@@ -156,7 +97,7 @@ export const useStore = create<State>((set, get) => ({
 
   reloadSession: async () => {
     const { sessionId, token } = get()
-    if (stopRunTimer) { stopRunTimer(); stopRunTimer = null; set({ running: false }) }
+    if (runTimer) { clearInterval(runTimer); runTimer = null; set({ running: false }) }
     if (sessionId) {
       if (token) await api.release(sessionId, token).catch(() => {})
       await api.deleteSession(sessionId).catch(() => {})
@@ -221,101 +162,30 @@ export const useStore = create<State>((set, get) => ({
     finally { stepping = false }
   },
 
-  setPolicyModel: (id) => set({ policyModel: id }),
-  setPolicyInstruction: (s) => { try { localStorage.setItem('vla_instruction', s) } catch { /* ignore */ } set({ policyInstruction: s }) },
-
   expertStep: async () => {
     const { sessionId, token } = get()
     if (!sessionId || !token || stepping) return
     stepping = true
     try {
-      const steps = typeof document !== 'undefined' && document.hidden ? 10 : 2
-      const obs = await api.expertStep(sessionId, token, get().epoch, steps)
-      const metrics = obs.metrics ?? (await api.result(sessionId)).metrics
-      set({ observation: obs, metrics })
-      if (metrics?.success) { get().log('抓放成功（闭环伺服专家）'); if (get().running) get().toggleRun() }
+      const obs = await api.expertStep(sessionId, token, get().epoch)
+      const res = await api.result(sessionId)
+      set({ observation: obs, metrics: res.metrics })
+      if (res.metrics.success) { get().log('抓放成功（闭环伺服专家）'); if (get().running) get().toggleRun() }
     } catch (e: any) { get().log(e.message, 'error'); if (get().running) get().toggleRun() }
     finally { stepping = false }
-  },
-
-  policyStep: async () => {
-    const { sessionId, token, policyModel, policyInstruction } = get()
-    if (!sessionId || !token || stepping) return
-    stepping = true
-    try {
-      const steps = typeof document !== 'undefined' && document.hidden ? 10 : 2
-      const obs = await api.policyStep(sessionId, token, policyModel, get().epoch, steps, policyInstruction)
-      finishLoadProgress?.('ok')
-      const metrics = obs.metrics ?? (await api.result(sessionId)).metrics
-      set({ observation: obs, metrics })
-      if (metrics?.success) { get().log(`视觉策略 [${policyModel}] 抓放成功！`); if (get().running) get().togglePolicyRun() }
-    } catch (e: any) {
-      finishLoadProgress?.('err')
-      get().log(e.message, 'error')
-      if (get().running) get().togglePolicyRun()
-    } finally { stepping = false }
   },
 
   toggleRun: () => {
     const { running } = get()
     if (running) {
-      if (stopRunTimer) stopRunTimer()
-      stopRunTimer = null
+      if (runTimer) clearInterval(runTimer)
+      runTimer = null
       set({ running: false })
       get().log('暂停运行')
     } else {
-      set({ running: true, runMode: 'expert' })
+      set({ running: true })
       get().log('开始运行脚本专家')
-      stopRunTimer = startExpertLoop(() => { get().expertStep() })
-    }
-  },
-
-  togglePolicyRun: () => {
-    const { running, policyModel } = get()
-    if (running) {
-      finishLoadProgress?.('cancel')
-      if (stopRunTimer) stopRunTimer()
-      stopRunTimer = null
-      set({ running: false })
-      get().log('暂停视觉策略')
-    } else {
-      finishLoadProgress?.('cancel')
-      set({ running: true, runMode: 'policy' })
-      get().log(`开始闭环运行双目视觉策略：${policyModel}`)
-      const tag = `policy-load-${Date.now()}`
-      const startedAt = Date.now()
-      let shown = false
-      let done = false
-      const show = (pct: number, detail: string, level: 'info' | 'error' = 'info') => {
-        shown = true
-        get().upsertLog(tag, `${formatBar(pct)} ${detail}`, level)
-      }
-      const timer = setInterval(() => {
-        if (done) return
-        const sec = Math.floor((Date.now() - startedAt) / 1000)
-        if (!shown && sec < 1) return
-        const pct = Math.min(95, Math.max(5, Math.round((sec / 105) * 95)))
-        show(pct, `正在加载 ${policyModel} 权重到显存（已等待 ${sec}s，预计 1~2 分钟，后续复用无需重加载）…`)
-      }, 1000)
-      finishLoadProgress = (status) => {
-        if (done) return
-        done = true
-        clearInterval(timer)
-        finishLoadProgress = null
-        if (!shown) return
-        const sec = ((Date.now() - startedAt) / 1000).toFixed(1)
-        if (status === 'ok') show(100, `${policyModel} 就绪，开始闭环推理（耗时 ${sec}s）`)
-        else if (status === 'err') show(0, `${policyModel} 首步运行失败（${sec}s）`, 'error')
-        else show(0, `已取消等待 ${policyModel} 加载（${sec}s）`)
-      }
-      api.models().then((r) => {
-        if (done) return
-        const m = (r.models || []).find((x: any) => x.id === policyModel)
-        if (m?.arch === 'smolvla' && !m?.loaded) {
-          show(0, `首次加载 ${policyModel} 权重到显存（约 1~2 分钟，后续刷新/换配置将直接复用）…`)
-        }
-      }).catch(() => {})
-      stopRunTimer = startExpertLoop(() => { get().policyStep() })
+      runTimer = setInterval(() => { get().expertStep() }, 60)
     }
   },
 }))
