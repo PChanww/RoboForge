@@ -1,240 +1,136 @@
 # RoboForge
 
-[English](README.md) | **简体中文**
+[English](README.md) · **简体中文**
 
-可配置的机器人仿真与学习工作台。通过提示词生成或导入三维资产，配置机器人关节、物理参数、相机和控制器，随后采集示范、评测策略、训练基线模型并导出部署材料。
+[![Apache 2.0 开源许可证](https://img.shields.io/badge/License-Apache_2.0-28745C?style=flat-square&logo=apache&logoColor=white)](LICENSE)
+[![Python 3.13](https://img.shields.io/badge/Python-3.13-3776AB?style=flat-square&logo=python&logoColor=white)](#快速开始)
+[![MuJoCo 4.0 物理引擎](https://img.shields.io/badge/MuJoCo-4.0-336D76?style=flat-square)](requirements.txt)
+[![HTTP 与 WebSocket 接口](https://img.shields.io/badge/API-HTTP_%2F_WebSocket-007C79?style=flat-square&logo=fastapi&logoColor=white)](docs/MODEL_INTEGRATION.zh-CN.md)
+[![NPZ 与 LeRobot 数据集](https://img.shields.io/badge/Data-NPZ_%2F_LeRobot-8B6420?style=flat-square)](#采集与回放)
+[![Aholo Lux3D 与 World](https://img.shields.io/badge/Aholo-Lux3D_%2F_World-5560A8?style=flat-square)](docs/GENERATION_WORKFLOW.zh-CN.md)
 
-> 生成资产 → 配置关节与传感器 → 接入控制器 → 运行任务 → 采数据 / 训练 → 评测 / 导出
+RoboForge 是一个网页端机器人仿真、资产验证与数据采集工作台。你可以把 Aholo 生成或本地导入的 3D 资产装进 MuJoCo 场景，检查尺寸、碰撞、抓取和相机视角，再录制带图像、状态、动作与任务指令的示范轨迹。导出的数据可交给外部训练流程，已有策略也可接入同一场景做闭环测试。
 
-当前物理后端为 MuJoCo，编辑器采用 React + React Three Fiber，数据转换与学习脚本对接 LeRobot 和 PyTorch。
+![RoboForge 仿真工作区，包含蓝杯抓放场景、关节属性及前视和腕部相机](docs/images/roboforge-simulation.webp)
 
-当前内置任务为双指夹爪桌面抓放。五轴机械臂与三轴龙门各自使用匹配的控制器。资产、机器人、传感器和示范采集的适用范围见[平台支持范围](docs/PLATFORM_SCOPE.zh-CN.md)。
-
-## 当前能力
-
-- **项目版本管理。** 使用带 `schema_version` 的配置保存连杆树、关节、执行器、相机、控制器和任务。保存产生新版本，在重建会话时应用。
-- **两种机器人配置。** Lux3D 生成的五旋转关节固定基座机械臂，以及用于检验不同机器人结构的直角坐标龙门配置。
-- **交互编辑。** 在场景树选择对象，编辑关节、连杆、相机和任务属性，保存并应用；三维网格位姿来自后端物理状态。
-- **传感器与时间设置。** 相机可固定在世界或挂载到连杆，支持针孔内参、分辨率、帧率和延迟配置。物理、控制、相机采集和策略时间由仿真时钟调度，记录采集与可用时间戳。
-- **控制器与策略接口。** 按机器人能力提供 `joint_position`、`cartesian_delta_ik` 模式，支持 HTTP/WebSocket 观测—动作循环和本地 Python 控制器插件。各会话具有独立环境与明确的控制权。
-- **数据与学习脚本。** 专家示范采集、LeRobot 数据转换与回读、数据检查、对齐回放、状态行为克隆（BC）、checkpoint 重载和闭环评测。
-- **导出。** 导出配置、资产、权重、输入输出契约及运行示例，并支持 MJCF 导出。部署运行器目前需要项目的 `vlab` 包和 Python 依赖。
-
-网页自由观察相机与策略使用的传感器相机分别配置。当前界面主要使用中文，文档提供中英文版本。
-
-实验结果、验证证据与实现限制见[审计报告](docs/AUDIT.zh-CN.md)。接手开发请先读[迁移交接文档](MIGRATION_HANDOFF.zh-CN.md)（真实现状、已知缺陷、使用教程、git 信息）。
+[快速开始](#快速开始) · [资产与场景](#资产与场景) · [采集与回放](#采集与回放) · [接入已有模型](#接入已有模型) · [文档索引](#文档索引)
 
 ## 快速开始
 
-以下命令从项目目录 `vla-lab` 执行。已准备的主机使用 Windows/PowerShell，仿真环境为 Python 3.13。前端需要 Node.js/npm，相机渲染需要可用的 OpenGL 上下文。
-
-### 使用当前工作区环境
-
-在一个终端启动后端：
+以下以 Windows PowerShell 为例。准备 Python 3.13、Node.js 20 或更高版本及 npm。相机渲染需要可用的 OpenGL 上下文。在仓库根目录启动后端。
 
 ```powershell
-..\..\work\venv\Scripts\python.exe -m uvicorn vlab.api:app --host 127.0.0.1 --port 8767
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn vlab.api:app --host 127.0.0.1 --port 8767
 ```
 
-在另一个终端启动前端：
+另开一个终端，从仓库根目录启动前端。
 
 ```powershell
 cd frontend
 npm ci
-npm run dev
+npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-打开 [http://localhost:5173](http://localhost:5173)。Vite 将 `/api` 和 `/assets` 代理到 8767 端口的后端。
+1. 打开[项目工作台](http://127.0.0.1:5173/projects)，在默认项目卡片点击「打开仿真」。后端在首次启动时创建默认桌面抓放项目。
+2. 在左侧场景树选择关节或相机，在右侧检查属性。修改后点「保存并应用」，保存为项目配置新版本。
+3. 点击「重置」，再点「运行专家」。观察目标物接触、抬升及放置。在底部相机面板查看前视与腕部画面。三维视口用于自由观察，采集使用项目配置中的传感器相机。
 
-在场景树选择关节或相机，修改属性后点击「保存并应用」。点击「运行专家」可以运行脚本控制器。
+这条路径使用仓库自带的资产与伺服专家，无需 Aholo 凭据或模型权重。Vite 默认将 `/api` 和 `/assets` 代理至后端。如需修改后端地址，在启动前端前设置 `VLAB_API_ORIGIN`。启动后可打开 [FastAPI 接口文档](http://127.0.0.1:8767/docs)。
 
-### 新建仿真环境
+## 资产与场景
 
-在 `vla-lab` 中创建并激活 Python 3.13 环境：
+1. **生成或导入。** 在「资产生成」选择任务物体、静态道具、机械臂外观、场景网格或全景 / 3DGS 背景。仅生成外观时，选「自由生成 3D 外观」，只需描述目标。先预览生成请求，再明确确认提交。已有场景可从「资产库」导入 GLB 或 PLY，独立杯类 GLB / ZIP 可用[单体导入工具](asset_pipeline/README.md)。
+2. **配置物理属性。** 核对单位、尺寸和支撑面，按物体用途配置碰撞、质量与摩擦。机械臂外观需分件绑定到已配置的连杆，关节轴、限位、执行器及夹爪由机器人配置定义。资产入库后可下载「绑定指南」，查看资产引用及下一步配置。
+3. **校验并应用。** 在场景配方面板选择任务物体、工作台和目标项目，执行「创建配方并校验」。通过 MuJoCo 构建及短步稳定性检查后，将配方应用到新项目版本。进入仿真实跑，确认抓取接触、托盘支撑和相机覆盖范围。
+
+**在线服务。** 从后端所在电脑打开「设置」，在「Aholo 3D 生成」配置 API Key，或给后端进程设置 `AHOLO_API_KEY`。Lux3D 依赖见[资产导入指南](asset_pipeline/README.md)，World 依赖列在 [requirements-world.txt](requirements-world.txt)。对话式整理规格需另配辅助 LLM。表单、JSON 和本地导入可独立使用。环境变量示例见 [.env.example](.env.example)。
+
+**背景与相机。** Aholo World 的 3DGS 用于 Hybrid 固定前视背景，桌面与物体接触由独立的物理几何提供。采集前视与腕部双相机时，选择 MuJoCo 渲染。资产来源、场景版本和物理参数可用于追溯同一批数据的采集条件。
+
+## 采集与回放
+
+| 想做什么 | 从哪里开始 |
+| --- | --- |
+| 试录一条 | 在「数据采集」选择物体，将采集次数设为 1，填入起始种子后开始。采集结束后点「打开数据集」。 |
+| 从指定项目采集 | 在「数据集」选择项目，填写新采集 ID，点「采集（伺服专家）」。作业使用提交时的项目配置快照。 |
+| 检查相机帧 | 打开 NPZ 数据集，在「相机帧预览」切换示范，查看起始、中段和结束帧。 |
+| 连续回放 | 「任务编排」生成的示范可在「数据与回放」播放和拖动进度。桌面双相机 NPZ 可用脚本导出 MP4。 |
+| 导出 LeRobot | 在「数据集」填写原始采集 ID 和新的输出 ID，点击「转换 LeRobot」，也可以用下方命令行入口。 |
+
+每批原始数据由 `manifest.json` 和 `episodes/*.npz` 组成。桌面抓放示范记录图像、关节状态、末端位姿、夹爪状态、动作、任务指令和时间信息。先用少量样本检查画面和动作对齐，再调整资产、相机或种子批量采集。
+
+在仓库根目录采集并导出一个双相机回放。MP4 导出需要 `ffmpeg` 在 PATH 中。
 
 ```powershell
-py -3.13 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python -m uvicorn vlab.api:app --host 127.0.0.1 --port 8767
+$capture = "datasets/collections/readme-" + (Get-Date -Format 'yyyyMMdd-HHmmss')
+.\.venv\Scripts\python.exe scripts/collect_expert.py --episodes 1 --out $capture
+.\.venv\Scripts\python.exe scripts/replay_episode.py --staging $capture --episode 0 --out "$capture/replay"
 ```
 
-然后按上面的步骤启动前端。修改后端端口时，同步修改 `frontend/vite.config.ts`。
+转换器使用独立的 LeRobot 环境。仓库记录的桌面转换环境为 Python 3.11 和 LeRobot 0.4.4，还需 PyTorch 及 Parquet 依赖。在该环境中从仓库根目录运行，将示例路径替换为实际采集目录和未占用的输出目录。转换会用 LeRobot 加载器回读检查，并保存仿真清单及逐帧时间信息。
 
-核心依赖覆盖仿真、API 和 API 测试。LeRobot/PyTorch 训练、资产生成和 MP4 回放有下文说明的额外依赖。
+```bash
+python scripts/lerobot_writer.py --staging datasets/collections/your-capture --out datasets/lerobot/your-export
+```
 
-### 配置在线服务
+网页转换作业通过 WSL 调用转换脚本。使用网页按钮前，将 `VLAB_WSL_DISTRO`、`VLAB_LINUX_LAB`、`VLAB_LINUX_DEPS`、`VLAB_LINUX_PYTHON` 配置为本机实际环境。
 
-在后端所在电脑通过 `localhost` 或 `127.0.0.1` 打开「设置 → 外部服务」。Aholo 配置填写 API Key，辅助 LLM 配置填写 OpenAI 兼容的 Base URL、API Key 和模型 ID。可先测试再保存。Aholo 测试查询任务列表，辅助 LLM 测试发送一条短文本。保存后，新请求立即使用新配置。已有 Key 会显示为「已设置」，输入留空时会保留原值。
+## 接入已有模型
 
-网页版配置保存在后端项目目录的 `.env.providers.json`，Git 忽略该文件。网页保存的字段优先，环境变量提供其余字段的默认值。在线 Lux3D 和 World 仍需要各自的 SDK。
+以项目版本为单位确定输入输出契约。资产指南说明单件资产如何使用，**项目绑定指南**列出实际运行的机器人、关节、传感器与控制器。应用配方后可下载项目指南，也可通过 API 获取指定版本。
 
-### 测试自训多物体 VLA
+| 步骤 | 做法 |
+| --- | --- |
+| 选项目和机器人 | 读取 `GET /api/v1/config?project=default` 与 `GET /api/v1/capabilities?project=default`。从选中机器人的 `controller_ids`、`sensor_ids` 取可用项。 |
+| 绑定输入 | 按模型训练顺序从 `state.joint_pos`、`state.joint_vel` 按名称取值。将模型图像输入映射到传感器 ID，例如 `front`、`wrist`。解码 JPEG 后按训练约定处理图像，并检查帧时间和可用状态。 |
+| 对齐输出 | 按控制器的 `action_names`、`units`、`action_range` 和 `frequency_hz` 转换模型动作。核对关节单位、坐标系、绝对值或增量及夹爪含义。 |
+| 校验并试跑 | 用 `POST /api/v1/compat` 检查契约。创建会话并确认配置版本，获取控制权，读取 `observation`，携带 `token`、`epoch` 和 `tick` 发送一步保持动作，核对下一步观测。 |
 
-从项目列表打开任意兼容项目的仿真，在通用工具栏展开「自训 VLA 测试」并输入指令。后端检查目标物体和入托盘动作，通过后用输入框的原文从当前仿真状态运行。遇到不支持的指令，仿真继续使用当前控制目标推进。要重开场景时，单独点击「重置」。
+项目指南接口为 `GET /api/v1/projects/{project_id}/binding-guide?version={version}`。完整 HTTP 客户端示例见[模型接入与资产绑定](docs/MODEL_INTEGRATION.zh-CN.md)，也可使用 `/api/v1/ws/{sid}` WebSocket 会话或 [VLabGymEnv](vlab/gym_env.py) 的 Gymnasium 接口。
 
-首次在 Windows 上搭建双物体演示场景时，运行 `./start_demo.ps1` 生成 `hackathon_demo` 项目。把自训模型目录中的 `config.json`、`so100_stats.json` 和 `model.safetensors` 放入 `datasets/models/so100_smolvla_omni/`。
+默认桌面示例采用五旋转关节机械臂与双指夹爪。`cartesian` 控制器接受归一化的 `[dx, dy, dz, grip]`。三轴龙门有独立的[关节位置配置](configs/second_robot.json)，换用其他机构时需重新核对控制器、相机挂载及任务判定。内置固定姿态抓放专家依赖匹配的运动链和夹爪。详见[平台支持范围](docs/PLATFORM_SCOPE.zh-CN.md)。
 
-模型输入为前视和腕部画面、关节和末端状态及任务指令，输出为三个末端位移增量和一个夹爪控制通道。测试会话使用 MuJoCo 双相机，沿用项目的物体和碰撞配置。
+## 实验与扩展
 
-## 工程结构
+- **双物体演示。** Windows 安装好核心与前端依赖后，可运行 [start_demo.ps1](start_demo.ps1) 准备 `hackathon_demo`。项目工具栏的「自训 VLA 测试」需要与环境匹配的推理依赖及 `datasets/models/so100_smolvla_omni/` 中的 `config.json`、`so100_stats.json`、`model.safetensors`。使用 MuJoCo 前视 / 腕部双相机，选择当前项目中存在的目标并指令其入托盘。
+- **实验示例。** 工作台中另有移动搬运、传送带分拣、底盘驾驶、整场景生成和任务编排。各示例使用自己的场景、采集格式或策略配置，入口见[搬运](frontend/MOBILE_TRANSPORT.md)、[分拣](frontend/DUCK_SORTING.md)、[底盘驾驶](frontend/MOBILE_DEMO.md)、[整场景生成](frontend/SCENARIO_WORKBENCH.md)和[任务编排](frontend/STUDIO.md)说明。
+- **配置与仿真导出。** 机器人编辑器可导出已保存的 URDF。[MJCF 导出脚本](scripts/export_mjcf.py)生成默认场景的 MuJoCo XML，迁移时需提供引用的网格。仓库也保留 [BC 基线训练](scripts/train_bc.py)、[闭环评测](scripts/eval_policy.py)和[策略包导出](scripts/export_deploy.py)示例。
+
+## 文档索引
+
+| 文档 | 内容 |
+| --- | --- |
+| [平台支持范围](docs/PLATFORM_SCOPE.zh-CN.md) | 桌面机器人、传感器、控制器与示范采集条件 |
+| [资产生成与场景配方](docs/GENERATION_WORKFLOW.zh-CN.md) | 生成会话、导入、校验、应用与来源记录 |
+| [场景编辑](docs/SCENE_EDITOR.zh-CN.md) · [渲染与时序](docs/RENDERING_PIPELINE.zh-CN.md) | 碰撞代理、标定、相机挂载与时间戳 |
+| [模型接入与资产绑定](docs/MODEL_INTEGRATION.zh-CN.md) | 关节和相机映射、动作契约与最小 HTTP 客户端 |
+| [前端架构](docs/FRONTEND.zh-CN.md) | 页面模块、数据契约与双语机制 |
+| [审计与验证记录](docs/AUDIT.zh-CN.md) | 对应版本的实现检查、验证证据与限制 |
+
+## 仓库结构
 
 ```text
-vlab/                配置驱动物理环境、API、会话、调度器、Gymnasium 封装
-frontend/            React、TypeScript、Vite、React Three Fiber 编辑器
-configs/             默认项目与第二种机器人配置
-projects/            持久化项目版本
-assets/              机器人网格、生成物体与来源记录
-asset_pipeline/      Aholo 生成、GLB/ZIP 导入、机械臂网格绑定
-plugins/             本地控制器插件示例
-scripts/             采集、转换、训练、评测与导出工具
-tests/               物理环境和 API 检查
-datasets/            本地暂存数据、模型权重、回放和报告
-deploy/              生成的部署包和 MJCF
-experiments/         按日期保存的实验报告与验证证据
-integrations/        历史 SmolVLA 客户端与运行说明
-sim_env.py, arm.py    原型使用的机械臂与任务实现
-server.py            旧版 HTTP 服务，默认端口 8765
-index.html           旧版前端
-evidence/            历史龙门试验材料
+vlab/            MuJoCo 环境、FastAPI、会话、传感器调度、Gymnasium
+frontend/        React / TypeScript 网页工作台与三维视口
+configs/         默认项目和三轴龙门配置
+assets/          网格、场景与来源清单
+asset_pipeline/  资产生成、导入与机器人外观装配
+scripts/         数据采集、回放、转换及基线实验
+tests/           物理、配置、接口与渲染测试
+docs/            工作流、接入指南与验证记录
 ```
 
-新克隆的仓库可能没有生成的数据集和部署包。请参照 `.gitignore`，需要时使用脚本重新生成。
-
-## 平台 API
-
-当前后端使用 **8767** 端口。启动后可在 [http://127.0.0.1:8767/docs](http://127.0.0.1:8767/docs) 查看交互式接口定义。
-
-已有模型接入、关节与相机映射、动作契约及最小客户端示例见[模型接入与资产绑定指南](docs/MODEL_INTEGRATION.zh-CN.md)。
-
-| 方法与路径 | 用途 |
-| --- | --- |
-| `GET /api/v1/capabilities` | 引擎版本、机器人能力和控制器/传感器/任务描述 |
-| `GET /api/v1/config` | 读取当前项目配置 |
-| `POST /api/v1/config/validate` | 校验结构与物理构建 |
-| `PUT /api/v1/config` | 校验并保存配置版本 |
-| `GET /api/v1/config/versions` | 列出不可变版本 |
-| `GET /api/v1/config/versions/{version}` | 读取指定版本 |
-| `POST /api/v1/sessions` | 创建独立环境会话 |
-| `POST /api/v1/sessions/{sid}/reset` | 重置会话 |
-| `POST /api/v1/sessions/{sid}/control/acquire` | 获取控制 token |
-| `POST /api/v1/sessions/{sid}/control/release` | 释放控制权 |
-| `POST /api/v1/sessions/{sid}/action` | 携带 token 和当前 tick 执行一步动作 |
-| `POST /api/v1/sessions/{sid}/action_block` | 执行动作块 |
-| `GET /api/v1/sessions/{sid}/observation` | 读取按名称组织的关节状态、相机帧与时间信息 |
-| `GET /api/v1/sessions/{sid}/result` | 读取观测、任务与终止状态 |
-| `GET /api/v1/sessions/{sid}/frame.jpg` | 获取相机画面 |
-| `DELETE /api/v1/sessions/{sid}` | 关闭会话 |
-| `WS /api/v1/ws/{sid}` | 通过 WebSocket 获取控制权、执行动作和读取观测 |
-
-过期动作与控制权冲突返回 HTTP 409，动作维数错误或数值越界返回 HTTP 400。支持的动作模式由机器人配置决定。
-
-Gymnasium 接口位于 `vlab/gym_env.py`，类名为 `VLabGymEnv`，分别返回 `terminated` 和 `truncated`。
-
-## 采集、训练与评测
-
-使用仿真 Python 环境，在 `vla-lab` 执行：
+运行生成的项目版本、原始数据和部署产物主要存放在 `projects/`、`datasets/`、`deploy/`，可按需从源码重新生成。日常检查可用以下命令。
 
 ```powershell
-python scripts/collect_expert.py
-python scripts/replay_episode.py --episode 19
-```
-
-采集器将预定义的 21 个 episode 写入 `datasets/staging`。回放需要 PATH 中可用的 `ffmpeg`，输出 MP4 到 `datasets/replay`。
-
-转换与训练使用独立学习环境。已记录的 WSL 环境为 Python 3.11、LeRobot 0.4.4、PyTorch 2.6.0+cu124 和 Transformers 4.57.3。这些依赖独立于核心 `requirements.txt`，脚本还使用 pandas 和 pyarrow 等 Parquet 引擎。
-
-在该环境的项目目录执行：
-
-```bash
-python scripts/lerobot_writer.py --staging datasets/staging --out datasets/lerobot/expert21
-python scripts/data_checks.py --lab .
-python scripts/train_bc.py --lab .
-python scripts/eval_policy.py --group all
-```
-
-`eval_policy.py` 也可使用导出的 NumPy 权重在仿真环境中运行。可选的特权状态诊断流程为：
-
-```bash
-python scripts/train_priv.py --lab .
-python scripts/eval_policy.py --priv --group heldout_spawn
-```
-
-`train_bc.py` 使用 episode 0–14 训练，15–18 验证留出摆位，19–20 评测留出资产。PyTorch checkpoint 和 NumPy 权重写入 `datasets/models`。如果已有 `datasets/dagger/*.npz`，训练会将其加入；比较实验时需要记录这些额外输入。
-
-上述命令会生成或更新本地数据、权重与报告。当前 BC 模型是状态输入的 MLP。SmolVLA 推理步骤和历史动作投影的限制见 [integrations/README.md](integrations/README.md)。
-
-## 导出与扩展
-
-```powershell
-python scripts/export_deploy.py
-python scripts/export_mjcf.py
-python scripts/test_second_robot.py
-python scripts/test_aux_plugin.py
-```
-
-部署导出依赖已有的 BC 权重、训练报告与评测报告，输出到 `deploy/lux3d_5r-v4`，包含配置、资产、权重、输入输出 manifest 和 `run.py`，随后在新进程中分别验证专家与策略执行。
-
-从 `vla-lab` 手动运行导出包时，使用仿真 Python 环境并指定项目包位置：
-
-```powershell
-$env:VLAB_LAB = (Get-Location).Path
-python deploy/lux3d_5r-v4/run.py --controller expert --ticks 200 --report deploy/lux3d_5r-v4/manual-expert.json
-```
-
-迁移到其他机器时，还需要提供 `vlab` 包及兼容的 Python 依赖。MJCF 导出按文件名引用网格，需要将相应网格放到导出模型可访问的位置。
-
-- **资产。** 参见[资产生成与导入](asset_pipeline/README.md)。现有 Lux3D 来源记录保存在 `assets/robot/source.json` 和 `assets/imported/lux3d-ivory/manifest.json`。API 生成使用可选 Aholo SDK 和 `AHOLO_API_KEY`。
-- **本地控制器。** 插件暴露 `create_controller(config)`，并实现 `reset(obs)`、`act(obs)`。参见 `vlab/plugins.py` 和 `plugins/example_openloop.py`。
-- **辅助模型。** `vlab/aux_model.py` 读取 `AUX_MODEL_BASE_URL`、`AUX_MODEL_API_KEY`。未配置时返回 `waiting_for_configuration`，可进行结构化候选校验。模型名称通过适配器配置。
-
-凭据保存在本机环境中，避免写入源码、前端、日志和截图。
-
-## 开发检查
-
-```powershell
-python tests/test_engine.py
-python tests/test_api.py
+.\.venv\Scripts\python.exe tests/test_engine.py
+.\.venv\Scripts\python.exe tests/test_api.py
 cd frontend
 npm run build
 ```
 
-## 场景与视觉训练
+## 许可证
 
-可选 World SDK：`python -m pip install -r requirements-world.txt`，在后端环境配置 `AHOLO_API_KEY`。资产中心支持场景导入、生成和显式查询任务，成功下载后登记场景版本。3DGS 可用于固定前视的 hybrid 视觉合成。接触由桌面和独立代理提供，双相机采集使用 MuJoCo 渲染。
-
-网格导入会实际应用单位比例；物理使用需确认尺寸，并保留默认桌面或提供碰撞代理。仿真页按路由加载对应项目。视觉采集、转换、训练和评估可选择项目、数据集与模型，作业保存配置快照；转换不会删除已有数据集。新模型记录输入/动作契约，旧模型需通过 CLI 明确选择历史契约假设。
-
-## 对话式生成闭环
-
-把自然语言需求变成可训练场景的连通闭环：对话（可选）或直接表单/JSON → 版本化 `AssetSpec`/`PhysicsSpec`
-（字段级 provenance）→ 确定性编译预览 → 显式确认 → Lux3D 单体 / World 背景生成（幂等、节点级恢复）→
-导入校验 → `SceneRecipe` 组装 → 真实 MuJoCo 校验 → 原子应用到新项目版本 → 仿真 / 采集。
-
-- 语言模型只理解与建议，程序校验、编排、落地。估计的质量/摩擦/尺度保持 `model_inferred/unverified`，
-  不会变成"已测量"。未知尺寸 → 未标定视觉资产，处理前不绑定物理。
-- 辅助模型需要配置服务地址和凭据。对话在缺少配置时显示 `waiting_for_configuration`，表单、JSON 与本地导入仍可使用。后端负责使用提供方凭据。
-- 两种场景模式：`composed_scene`（参数化工作台+显式静态代理+可操作对象，无需 World/标定）与
-  `background_scene`（World 外观+显式代理；高斯需受限固定前视 `hybrid`）。远程生成成功 ≠ 已导入 ≠ 可训练。
-- API 位于 `/api/v1/generation/*` 与 `/api/v1/scene-recipes/*`；页面：生成工作台、任务详情、RecipePanel
-  （校验后原子应用到项目版本并读回）。
-- 采集 manifest 记录任务资产 mesh/manifest 哈希、生成来源、recipe/spec revision、物理 basis、相机与 `renderer_version`。
-
-详见 [生成闭环工作流](docs/GENERATION_WORKFLOW.zh-CN.md) 与
-[第四轮测试/能力报告](docs/ROUND4_GENERATION_REPORT.zh-CN.md)。
-
-## 历史原型
-
-`server.py` 默认端口为 **8765**。8767 端口的平台后端也提供旧版 `/api/*` 兼容路由。
-
-| 路由 | 旧版契约 |
-| --- | --- |
-| `GET /api/assets` | 可用杯子资产 |
-| `POST /api/reset` | 输入 `asset`、`seed`，返回新 episode |
-| `GET /api/observation?images=1` | 末端 XYZ、夹爪开度、指令、两张 Base64 编码的 256×256 JPEG |
-| `POST /api/step` | 输入 `episode`、`tick`、`action: [dx, dy, dz, grip]` |
-| `GET /api/result` | 接触、抬升、放置与任务指标 |
-
-旧版四维动作均在 `[-1, 1]` 内。每步平移目标增量最大 0.012 米，并进行工作区裁剪。grip −1 合爪，+1 开爪。每步前进 0.05 秒仿真时间，过期 episode/tick 返回 HTTP 409。
-
-`python evaluate.py --no-video` 会使用当前 `sim_env.py` 运行旧评测器，结果随检出的实现而变化，应保存为新的试验记录。
+本项目采用 [Apache License 2.0](LICENSE)。第三方软件、模型权重与资产的署名声明见 [NOTICE](NOTICE)。
